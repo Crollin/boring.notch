@@ -29,6 +29,31 @@ extension AgentState {
     }
 }
 
+extension AgentStep {
+    var symbol: String {
+        switch tool {
+        case "Bash": "terminal"
+        case "Read": "doc.text"
+        case "Edit", "Write", "MultiEdit": "pencil"
+        case "Grep", "Glob": "magnifyingglass"
+        case "Task", "Agent": "person.2"
+        case "WebFetch", "WebSearch": "globe"
+        default: "wrench.adjustable"
+        }
+    }
+    var kind: String {
+        switch tool {
+        case "Bash": "Commande"
+        case "Read": "Lecture"
+        case "Edit", "Write", "MultiEdit": "Édition"
+        case "Grep", "Glob": "Recherche"
+        case "Task", "Agent": "Sous-agent"
+        case "WebFetch", "WebSearch": "Web"
+        default: tool
+        }
+    }
+}
+
 private func agentIcon(_ source: String) -> String {
     switch source {
     case "claude": "sparkle"
@@ -46,6 +71,19 @@ private func accent(_ source: String) -> Color {
     }
 }
 
+extension AgentSession {
+    /// Même code couleur que la bulle : rouge = validation, orange = travail, vert = repos.
+    var tint: Color { state == .waiting ? .red : isActive ? .orange : .green }
+    var stateText: String {
+        switch state {
+        case .waiting: "Validation requise"
+        case .thinking where isActive: "Réfléchit…"
+        case .running where isActive: "Au travail"
+        default: "Au repos"
+        }
+    }
+}
+
 private let secondary = Color.white.opacity(0.5)
 private let cardFill = Color.white.opacity(0.07)
 private let cardStroke = Color.white.opacity(0.10)
@@ -54,7 +92,8 @@ private let cardStroke = Color.white.opacity(0.10)
 private extension View {
     @ViewBuilder func glass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
         if #available(macOS 26, *) {
-            self.glassEffect(interactive ? .regular.tint(tint?.opacity(0.35)).interactive() : .regular.tint(tint?.opacity(0.35)), in: shape)
+            self.background(shape.fill(.white.opacity(0.04)))
+                .glassEffect(interactive ? .regular.tint(tint?.opacity(0.35)).interactive() : .regular.tint(tint?.opacity(0.35)), in: shape)
         } else {
             self.background(shape.fill(tint?.opacity(0.18) ?? cardFill)).overlay(shape.stroke(cardStroke))
         }
@@ -97,7 +136,7 @@ struct AgentsView: View {
                 .font(.system(size: 11, weight: .medium)).foregroundStyle(secondary)
             Spacer()
             if mode == .progress, store.sessions.count > 1 {
-                ForEach(store.sessions.prefix(4)) { chip($0) }
+                ForEach(store.sessions.filter { $0.cwd != nil }.prefix(4)) { chip($0) }
             }
             roundButton("checklist", active: mode == .progress) { mode = .progress }
             roundButton("gauge.with.dots.needle.50percent", active: mode == .usage) { mode = .usage }
@@ -107,14 +146,14 @@ struct AgentsView: View {
     private func chip(_ s: AgentSession) -> some View {
         let on = s.id == session?.id
         return Button { selected = s.id } label: {
-            HStack(spacing: 4) {
-                Image(systemName: agentIcon(s.source)).font(.system(size: 8))
+            HStack(spacing: 5) {
+                Circle().fill(s.tint).frame(width: 6, height: 6)
                 Text(s.project).lineLimit(1)
             }
             .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(on ? accent(s.source) : secondary)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .glass(Capsule(), tint: on ? accent(s.source) : nil, interactive: true)
+            .foregroundStyle(on ? .white : secondary)
+            .padding(.horizontal, 9).padding(.vertical, 5)
+            .glass(Capsule(), tint: on ? s.tint : nil, interactive: true)
         }
         .buttonStyle(.plain)
     }
@@ -153,43 +192,62 @@ struct AgentsView: View {
     }
 
     private func agentHeader(_ s: AgentSession) -> some View {
-        Button { openTerminal(s) } label: { agentHeaderContent(s) }
+        Button { AgentStore.shared.openTerminal(s) } label: { agentHeaderContent(s) }
             .buttonStyle(.plain)
             .help("Ouvrir le terminal")
     }
 
-    private func openTerminal(_ s: AgentSession) { AgentStore.shared.openTerminal(s) }
-
     private func agentHeaderContent(_ s: AgentSession) -> some View {
-        HStack(spacing: 8) {
-            if s.source == "claude" {
-                Mascot(color: accent(s.source))
-            } else {
-                Image(systemName: agentIcon(s.source)).font(.system(size: 14)).foregroundStyle(accent(s.source))
+        HStack(spacing: 10) {
+            ZStack {
+                Circle().fill(.black)
+                Circle().stroke(s.tint.opacity(0.55), lineWidth: 1.5)
+                if s.source == "claude" {
+                    Mascot(color: s.tint).scaleEffect(0.8)
+                } else {
+                    Image(systemName: agentIcon(s.source)).font(.system(size: 12)).foregroundStyle(s.tint)
+                }
             }
-            Text(s.source.capitalized).font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
-            Circle().fill(s.state == .waiting ? .orange : accent(s.source)).frame(width: 6, height: 6)
-            Text(s.title ?? s.project)
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(accent(s.source)).lineLimit(1)
-            do {
-                Image(systemName: "arrow.up.forward.app").font(.system(size: 10)).foregroundStyle(secondary)
+            .frame(width: 34, height: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(s.title ?? s.project)
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(s.source.capitalized + " · " + s.project).foregroundStyle(secondary)
+                    Text(s.stateText).foregroundStyle(s.tint)
+                }
+                .font(.system(size: 10.5, weight: .medium)).lineLimit(1)
             }
+            Image(systemName: "arrow.up.forward.app").font(.system(size: 10)).foregroundStyle(secondary)
         }
         .contentShape(Rectangle())
     }
 
     private func stepList(_ s: AgentSession) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 0) {
             if s.steps.isEmpty {
-                Text(s.state == .done ? "En attente d'un prompt" : s.state.label)
+                Text(s.isActive ? s.state.label : "En attente d'un prompt")
                     .font(.system(size: 12)).foregroundStyle(secondary)
             }
-            ForEach(s.steps.suffix(3)) { step in
-                HStack(spacing: 8) {
-                    Image(systemName: step.done ? "checkmark" : "play.fill")
-                        .font(.system(size: 9, weight: .bold)).foregroundStyle(accent(s.source)).frame(width: 12)
-                    Text(step.label).font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(step.done ? 0.8 : 1)).lineLimit(1)
+            let steps = Array(s.steps.suffix(4))
+            ForEach(Array(steps.enumerated()), id: \.element.id) { i, step in
+                HStack(spacing: 9) {
+                    ZStack {
+                        // fil de la timeline
+                        Rectangle().fill(.white.opacity(0.12)).frame(width: 1)
+                            .padding(.top, i == 0 ? 10 : 0).padding(.bottom, i == steps.count - 1 ? 10 : 0)
+                        Circle().fill(.black).frame(width: 14, height: 14)
+                        Image(systemName: step.done ? step.symbol : "circle.dotted")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(step.done ? secondary : s.tint)
+                    }
+                    .frame(width: 14, height: 22)
+                    Text(step.label).font(.system(size: 11.5))
+                        .foregroundStyle(.white.opacity(step.done ? 0.65 : 1)).lineLimit(1)
+                    Spacer(minLength: 6)
+                    if let d = step.duration {
+                        Text(String(format: "%.1fs", d)).font(.system(size: 9.5, design: .monospaced)).foregroundStyle(.white.opacity(0.3))
+                    }
                 }
             }
         }
@@ -216,46 +274,49 @@ private struct ActivityCard: View {
     let session: AgentSession
 
     private var step: AgentStep? { session.steps.last }
-    private var color: Color { accent(session.source) }
-
     private var waiting: Bool { session.state == .waiting }
-    private var icon: String {
-        if waiting { return "exclamationmark.shield.fill" }
-        if step == nil { return "folder.fill" }
-        return step?.isEdit == true ? "doc.text.fill" : "hammer.fill"
-    }
+    private var running: Bool { session.isActive && (step.map { !$0.done } ?? false) }
+    private var tint: Color { session.tint }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 11))
-                Text(title).lineLimit(1).truncationMode(.middle)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: waiting ? "exclamationmark.shield.fill" : (step?.symbol ?? "folder.fill"))
+                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
+                    .frame(width: 24, height: 24)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tint.opacity(0.16)))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).lineLimit(1).truncationMode(.middle)
+                    Text(status).font(.system(size: 10.5, weight: .medium)).foregroundStyle(waiting || running ? tint : secondary)
+                }
                 Spacer(minLength: 4)
                 if step?.isEdit == true, let f = step?.file, let d = session.diffs[f] {
                     Text("+\(d.added)").foregroundStyle(.green)
                     Text("−\(d.removed)").foregroundStyle(.red)
                 }
             }
-            .font(.system(size: 12, weight: .bold, design: .monospaced))
-            .foregroundStyle(waiting ? Color.orange : color)
-            Text(subtitle).font(.system(size: 11)).foregroundStyle(secondary).lineLimit(2)
+            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+            if let detail {
+                Text(detail).font(.system(size: 10, design: .monospaced)).foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(2).truncationMode(.middle)
+            }
             if waiting {
                 HStack(spacing: 8) {
-                    decisionButton("Refuser", tint: nil, text: .white) { AgentStore.shared.decide(session.id, allow: false) }
-                    decisionButton("Autoriser", tint: .orange, text: .white) { AgentStore.shared.decide(session.id, allow: true) }
+                    decisionButton("Refuser", tint: nil) { AgentStore.shared.decide(session.id, allow: false) }
+                    decisionButton("Autoriser", tint: .red) { AgentStore.shared.decide(session.id, allow: true) }
                 }
-                .padding(.top, 2)
+            } else if running {
+                ProgressLine(running: true, color: tint)
             }
-            ProgressLine(running: waiting || (step.map { !$0.done } ?? false && session.isActive), color: waiting ? .orange : color)
         }
-        .padding(10)
-        .glass(RoundedRectangle(cornerRadius: 16, style: .continuous), tint: waiting ? .orange : nil)
+        .padding(11)
+        .glass(RoundedRectangle(cornerRadius: 16, style: .continuous), tint: waiting ? .red : nil)
     }
 
-    private func decisionButton(_ label: String, tint: Color?, text: Color, _ action: @escaping () -> Void) -> some View {
+    private func decisionButton(_ label: String, tint: Color?, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(text)
-                .frame(maxWidth: .infinity).padding(.vertical, 5)
+            Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
+                .frame(maxWidth: .infinity).padding(.vertical, 6)
                 .glass(Capsule(), tint: tint, interactive: true)
         }
         .buttonStyle(.plain)
@@ -264,14 +325,20 @@ private struct ActivityCard: View {
     private var title: String {
         if waiting { return "Validation requise" }
         if let f = step?.file { return (f as NSString).lastPathComponent }
-        return step?.label ?? session.project
+        return step?.kind ?? session.project
     }
 
-    private var subtitle: String {
-        if waiting { return session.pending ?? "Une action attend votre accord" }
-        guard let step, session.isActive else { return session.isActive ? session.state.label : "Terminé" }
-        if let d = step.duration { return String(format: "%.2f s", d) }
-        return step.isEdit ? "Enregistrement…" : "En cours…"
+    private var status: String {
+        if waiting { return "En attente de votre accord" }
+        guard let step else { return session.stateText }
+        if let d = step.duration { return String(format: "Terminé · %.1f s", d) }
+        return step.isEdit ? "Écriture…" : "En cours…"
+    }
+
+    private var detail: String? {
+        if waiting { return session.pending }
+        guard let step, step.file == nil else { return nil }
+        return step.label
     }
 }
 

@@ -156,7 +156,9 @@ final class AgentStore: ObservableObject {
 
     private static func label(_ tool: String, _ i: AgentEnvelope.ToolInput?) -> String {
         if let f = i?.file_path { return "\(tool) \((f as NSString).lastPathComponent)" }
-        let text = i?.description ?? i?.command?.split(whereSeparator: \.isNewline).first.map(String.init)
+        let text = i?.description ?? i?.command?.split(whereSeparator: \.isNewline).first.map {
+            String($0).components(separatedBy: "&&").last?.trimmingCharacters(in: .whitespaces) ?? String($0)   // sans le « cd … && » de tête
+        }
         if tool == "Bash", let text { return "Run \(text.prefix(40))" }
         if let q = i?.pattern ?? text { return "\(tool) \(q.prefix(40))" }
         return tool
