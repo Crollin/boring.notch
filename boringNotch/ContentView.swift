@@ -373,7 +373,8 @@ struct ContentView: View {
                     }
                 }
                 // Un onglet trop haut déborde vers le bas (coupé) au lieu de repousser l'en-tête hors de la notch.
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // minHeight: 0 sinon le cadre prend la taille du contenu quand il déborde.
+                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
                 .clipped()
                 .transition(
                     .scale(scale: 0.8, anchor: .top)
