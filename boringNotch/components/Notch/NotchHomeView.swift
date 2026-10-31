@@ -120,15 +120,16 @@ struct MusicControlsView: View {
     @Default(.musicControlSlotLimit) private var slotLimit
 
     @State private var sonosPickerOpen = false
+    @ObservedObject private var sonos = SonosStore.shared
 
     var body: some View {
         VStack(alignment: .leading) {
-            if sonosPickerOpen && SonosStore.shared.isActive {
+            if sonosPickerOpen && sonos.isActive {
                 SonosPickerView(isOpen: $sonosPickerOpen)
+                SonosRowView(pickerOpen: $sonosPickerOpen)
             } else {
                 songInfoAndSlider
             }
-            SonosRowView(pickerOpen: $sonosPickerOpen)
             if !sonosPickerOpen { slotToolbar }
         }
         .buttonStyle(PlainButtonStyle())
@@ -160,7 +161,10 @@ struct MusicControlsView: View {
                 frameWidth: width
             )
             .fontWeight(.medium)
-            if Defaults[.enableLyrics] {
+            // ponytail: la notch a une hauteur fixe ; la ligne Sonos prend la place des paroles.
+            if sonos.isActive {
+                SonosRowView(pickerOpen: $sonosPickerOpen)
+            } else if Defaults[.enableLyrics] {
                 TimelineView(.animation(minimumInterval: 0.25)) { timeline in
                     let currentElapsed: Double = {
                         guard musicManager.isPlaying else { return musicManager.elapsedTime }

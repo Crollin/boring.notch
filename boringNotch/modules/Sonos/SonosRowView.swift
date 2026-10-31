@@ -37,7 +37,7 @@ struct SonosRowView: View {
                     .frame(height: 8)
                 Image(systemName: "speaker.wave.3.fill").font(.system(size: 9)).foregroundStyle(.gray)
             }
-            .frame(height: 20)
+            .frame(height: 18)
             .transition(.opacity)
         }
     }
