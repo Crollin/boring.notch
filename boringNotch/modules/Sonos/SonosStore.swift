@@ -46,50 +46,71 @@ final class SonosStore: ObservableObject {
 
     // MARK: - Rafraîchissement
 
+    private enum Detection {
+        case off                                   // désactivé, Spotify fermé/arrêté : inactif tout de suite
+        case miss                                  // rien trouvé (réseau, changement de morceau…)
+        case active(rooms: [SonosRoom], groups: [SonosGroup], group: SonosGroup)
+    }
+
+    private var generation = 0   // incrémenté par chaque action de groupe : invalide un refresh en vol
+    private var misses = 0
+    // ponytail: 2 ratés (~6 s) avant de rendre les touches au Mac ; évite le clignotement aux changements de morceau.
+    private let missesBeforeInactive = 2
+
     func refresh() async {
         guard !busy else { return }
-        guard Defaults[.enableSonos], let spotify = await Self.spotifyTrack() else {
+        let gen = generation
+        let detection = await detect()
+        guard gen == generation, !busy else { return }   // une action a changé les groupes entre-temps
+
+        switch detection {
+        case .off:
+            misses = 0
             setInactive()
-            return
+        case .miss:
+            misses += 1
+            if misses >= missesBeforeInactive { setInactive() }
+        case .active(let newRooms, let newGroups, let group):
+            misses = 0
+            rooms = newRooms
+            groups = newGroups
+            if let old = activeGroup {
+                let updated = SonosLogic.updatedHistory(previous: Defaults[.sonosLastGroup], old: old.memberIDs, new: group.memberIDs)
+                if updated != Defaults[.sonosLastGroup] { Defaults[.sonosLastGroup] = updated }
+            }
+            activeGroup = group
+            await refreshVolumes(group, generation: gen)
         }
+    }
+
+    private func detect() async -> Detection {
+        guard Defaults[.enableSonos], let spotify = await Self.spotifyState() else { return .off }
         guard let host = await reachableHost(),
-              let topo = try? await client.topology(host: host) else {
-            setInactive()
-            return
-        }
-        rooms = topo.rooms.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-        groups = topo.groups
-
-        var found: SonosGroup?
+              let topo = try? await client.topology(host: host) else { return .miss }
+        let sorted = topo.rooms.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         for group in topo.groups {
-            guard let h = ip(of: group.coordinatorID),
+            guard let h = sorted.first(where: { $0.id == group.coordinatorID })?.host,
                   let state = try? await client.transportState(host: h),
-                  ["PLAYING", "PAUSED_PLAYBACK", "TRANSITIONING"].contains(state),
+                  SonosLogic.statesAgree(spotifyPlaying: spotify.playing, sonosState: state),
                   let track = try? await client.currentTrack(host: h),
-                  SonosLogic.tracksMatch(track, spotify) else { continue }
-            found = group
-            break
+                  SonosLogic.tracksMatch(track, spotify.track) else { continue }
+            return .active(rooms: sorted, groups: topo.groups, group: group)
         }
-        guard let group = found, let coord = ip(of: group.coordinatorID) else {
-            setInactive()
-            return
-        }
+        return .miss
+    }
 
-        if let old = activeGroup {
-            let updated = SonosLogic.updatedHistory(previous: Defaults[.sonosLastGroup], old: old.memberIDs, new: group.memberIDs)
-            if updated != Defaults[.sonosLastGroup] { Defaults[.sonosLastGroup] = updated }
-        }
-        activeGroup = group
-
+    private func refreshVolumes(_ group: SonosGroup, generation gen: Int) async {
         // Ne pas écraser un réglage local tout juste envoyé (curseur qui saute).
-        guard Date().timeIntervalSince(lastLocalVolumeChange) > 2 else { return }
-        if let v = try? await client.groupVolume(coordinator: coord) { groupVolume = v }
+        guard Date().timeIntervalSince(lastLocalVolumeChange) > 2, let coord = ip(of: group.coordinatorID) else { return }
+        let v = try? await client.groupVolume(coordinator: coord)
         var vols: [String: Int] = [:]
         if group.memberIDs.count > 1 {
             for id in group.memberIDs {
-                if let h = ip(of: id), let v = try? await client.volume(host: h) { vols[id] = v }
+                if let h = ip(of: id), let rv = try? await client.volume(host: h) { vols[id] = rv }
             }
         }
+        guard gen == generation, !busy, Date().timeIntervalSince(lastLocalVolumeChange) > 2 else { return }
+        if let v { groupVolume = v }
         roomVolumes = vols
     }
 
@@ -111,20 +132,22 @@ final class SonosStore: ObservableObject {
 
     private func ip(of id: String) -> String? { rooms.first { $0.id == id }?.host }
 
-    /// Morceau Spotify si Spotify est lancé et en lecture/pause, sinon nil.
-    private static func spotifyTrack() async -> SonosTrack? {
+    /// État Spotify si Spotify est lancé et en lecture/pause, sinon nil.
+    private static func spotifyState() async -> (playing: Bool, track: SonosTrack)? {
         let script = """
         if application "Spotify" is running then
             tell application "Spotify"
                 if player state is stopped then return ""
-                return (name of current track) & linefeed & (artist of current track)
+                return (player state as string) & linefeed & (id of current track) & linefeed & (name of current track) & linefeed & (artist of current track)
             end tell
         end if
         return ""
         """
         guard let out = try? await AppleScriptHelper.execute(script)?.stringValue, !out.isEmpty else { return nil }
-        let parts = out.components(separatedBy: "\n")
-        return SonosTrack(title: parts[0], artist: parts.count > 1 ? parts[1] : "")
+        let p = out.components(separatedBy: "\n")
+        guard p.count >= 3 else { return nil }
+        return (p[0] == "playing",
+                SonosTrack(title: p[2], artist: p.count > 3 ? p[3] : "", spotifyID: SonosParse.spotifyID(from: p[1])))
     }
 
     // MARK: - Groupes
@@ -141,8 +164,10 @@ final class SonosStore: ObservableObject {
     func apply(_ roomIDs: [String]) async {
         guard let group = activeGroup,
               let target = SonosLogic.plan(for: roomIDs, available: Set(rooms.map(\.id))),
-              Set(target) != Set(group.memberIDs) || !target.contains(group.coordinatorID) else { return }
+              Set(target) != Set(group.memberIDs) || !target.contains(group.coordinatorID),
+              !busy else { return }   // une action à la fois (taps rapides ignorés)
         busy = true
+        generation += 1
         defer { busy = false }
 
         var coordinator = group.coordinatorID

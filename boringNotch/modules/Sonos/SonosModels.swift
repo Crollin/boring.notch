@@ -28,6 +28,7 @@ struct SonosFavorite: Codable, Hashable, Identifiable {
 struct SonosTrack: Equatable {
     let title: String
     let artist: String
+    var spotifyID: String? = nil   // id Spotify (22 car.) quand connu : prime sur le titre
 }
 
 // MARK: - Parsing
@@ -71,7 +72,16 @@ enum SonosParse {
     /// dc:title / dc:creator d'un TrackMetaData DIDL-Lite.
     static func track(fromDIDL didl: String) -> SonosTrack? {
         guard let title = value("title", in: didl), !title.isEmpty else { return nil }
-        return SonosTrack(title: title, artist: value("creator", in: didl) ?? "")
+        return SonosTrack(title: title, artist: value("creator", in: didl) ?? "",
+                          spotifyID: value("res", in: didl).flatMap(spotifyID(from:)))
+    }
+
+    /// "…spotify:track:<id>?…" (ou "spotify%3atrack%3a<id>") → <id>.
+    static func spotifyID(from uri: String) -> String? {
+        let s = uri.removingPercentEncoding ?? uri
+        guard let r = s.range(of: "spotify:track:") else { return nil }
+        let id = s[r.upperBound...].prefix { $0.isLetter || $0.isNumber }
+        return id.isEmpty ? nil : String(id)
     }
 }
 
@@ -131,6 +141,7 @@ enum SonosSOAP {
 enum SonosLogic {
     /// Titre : sans casse/accents, coupé à " - " et " (" (Remastered, feat.). Artiste : l'un contient l'autre.
     static func tracksMatch(_ a: SonosTrack, _ b: SonosTrack) -> Bool {
+        if let x = a.spotifyID, let y = b.spotifyID { return x == y }
         func norm(_ s: String) -> String {
             s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
                 .trimmingCharacters(in: .whitespaces)
@@ -143,6 +154,12 @@ enum SonosLogic {
         guard title(a.title) == title(b.title) else { return false }
         let (x, y) = (norm(a.artist), norm(b.artist))
         return x.isEmpty || y.isEmpty || x.contains(y) || y.contains(x)
+    }
+
+    /// Spotify en lecture ⇔ Sonos en lecture ; Spotify en pause ⇔ Sonos en pause.
+    /// Évite qu'une Sonos en pause sur le même morceau capte les touches quand Spotify joue sur le Mac.
+    static func statesAgree(spotifyPlaying: Bool, sonosState: String) -> Bool {
+        spotifyPlaying ? ["PLAYING", "TRANSITIONING"].contains(sonosState) : sonosState == "PAUSED_PLAYBACK"
     }
 
     /// Nouveaux membres après tap sur la case `room` ; nil si on retirerait la dernière pièce.

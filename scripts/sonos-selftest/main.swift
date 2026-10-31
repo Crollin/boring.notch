@@ -34,6 +34,21 @@ let didlEsc = didl.replacingOccurrences(of: "&", with: "&amp;").replacingOccurre
 let posInfo = "<s:Envelope><s:Body><u:GetPositionInfoResponse><TrackMetaData>\(didlEsc)</TrackMetaData></u:GetPositionInfoResponse></s:Body></s:Envelope>"
 check(SonosParse.track(fromDIDL: SonosParse.value("TrackMetaData", in: posInfo) ?? "") == SonosTrack(title: "Été Indien - Remastered 2004", artist: "Joe Dassin"), "track")
 
+// spotify id (I2)
+let didlRes = "<DIDL-Lite xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><item><res duration=\"0:05:22\">x-sonos-spotify:spotify:track:5lRzWDEe7UuedU2QPsFg0K?sid=9&amp;flags=0&amp;sn=2</res><dc:title>The Funeral</dc:title><dc:creator>Band of Horses</dc:creator></item></DIDL-Lite>"
+let t2 = SonosParse.track(fromDIDL: didlRes)
+check(t2?.spotifyID == "5lRzWDEe7UuedU2QPsFg0K", "spotify id from res, got \(String(describing: t2?.spotifyID))")
+check(SonosLogic.tracksMatch(t2!, SonosTrack(title: "Autre titre", artist: "x", spotifyID: "5lRzWDEe7UuedU2QPsFg0K")), "match by id")
+check(!SonosLogic.tracksMatch(t2!, SonosTrack(title: "The Funeral", artist: "Band of Horses", spotifyID: "AAAA")), "id mismatch wins over title")
+check(SonosParse.spotifyID(from: "spotify:track:5lRzWDEe7UuedU2QPsFg0K") == "5lRzWDEe7UuedU2QPsFg0K", "id from spotify uri")
+
+// states agree (I2)
+check(SonosLogic.statesAgree(spotifyPlaying: true, sonosState: "PLAYING"), "playing/playing")
+check(SonosLogic.statesAgree(spotifyPlaying: true, sonosState: "TRANSITIONING"), "playing/transitioning")
+check(!SonosLogic.statesAgree(spotifyPlaying: true, sonosState: "PAUSED_PLAYBACK"), "Spotify plays on Mac, Sonos paused")
+check(SonosLogic.statesAgree(spotifyPlaying: false, sonosState: "PAUSED_PLAYBACK"), "paused/paused")
+check(!SonosLogic.statesAgree(spotifyPlaying: false, sonosState: "STOPPED"), "stopped")
+
 // tracksMatch
 check(SonosLogic.tracksMatch(SonosTrack(title: "Été Indien - Remastered 2004", artist: "Joe Dassin"), SonosTrack(title: "ete indien", artist: "JOE DASSIN")), "match accents/suffix")
 check(SonosLogic.tracksMatch(SonosTrack(title: "Song (feat. X)", artist: "A, X"), SonosTrack(title: "Song", artist: "A")), "match feat")
