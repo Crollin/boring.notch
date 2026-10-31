@@ -17,7 +17,7 @@ struct TabModel: Identifiable {
 let tabs = [
     TabModel(label: "Home", icon: "house.fill", view: .home),
     TabModel(label: "Shelf", icon: "tray.fill", view: .shelf)
-]
+] + NotchModules.all.map { TabModel(label: $0.label, icon: $0.icon, view: .module($0.id)) }
 
 struct TabSelectionView: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared

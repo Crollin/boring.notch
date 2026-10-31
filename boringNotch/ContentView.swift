@@ -116,6 +116,7 @@ struct ContentView: View {
                         .bottom,
                         vm.effectiveClosedNotchHeight == 0 ? 10 : 0
                     )
+
                 
                 mainLayout
                     .frame(height: vm.notchState == .open ? vm.notchSize.height : nil)
@@ -204,6 +205,19 @@ struct ContentView: View {
         }
         .padding(.bottom, 8)
         .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
+        // Island agents : à gauche du notch fermé (largeur réelle, activité Spotify comprise), à sa hauteur.
+        .overlay(alignment: .top) {
+            if vm.notchState == .closed {
+                HStack(spacing: 0) {
+                    HStack { Spacer(minLength: 0); AgentsPill(height: vm.effectiveClosedNotchHeight) }
+                        .frame(maxWidth: .infinity)
+                        .padding(.trailing, computedChinWidth / 2 + 8)
+                    Color.clear.frame(maxWidth: .infinity)
+                }
+                .frame(height: vm.effectiveClosedNotchHeight)
+                .allowsHitTesting(false)
+            }
+        }
         .compositingGroup()
         .scaleEffect(
             x: gestureScale,
@@ -349,6 +363,8 @@ struct ContentView: View {
                         NotchHomeView(albumArtNamespace: albumArtNamespace)
                     case .shelf:
                         ShelfView()
+                    case .module(let id):
+                        NotchModules.view(for: id)
                     }
                 }
                 .transition(
