@@ -119,10 +119,17 @@ struct MusicControlsView: View {
     @Default(.musicControlSlots) private var slotConfig
     @Default(.musicControlSlotLimit) private var slotLimit
 
+    @State private var sonosPickerOpen = false
+
     var body: some View {
         VStack(alignment: .leading) {
-            songInfoAndSlider
-            slotToolbar
+            if sonosPickerOpen && SonosStore.shared.isActive {
+                SonosPickerView(isOpen: $sonosPickerOpen)
+            } else {
+                songInfoAndSlider
+            }
+            SonosRowView(pickerOpen: $sonosPickerOpen)
+            if !sonosPickerOpen { slotToolbar }
         }
         .buttonStyle(PlainButtonStyle())
     }
