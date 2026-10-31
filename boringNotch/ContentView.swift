@@ -214,7 +214,7 @@ struct ContentView: View {
                         doOpen()
                     } }
                         .frame(maxWidth: .infinity)
-                        .padding(.trailing, computedChinWidth / 2 + 8)
+                        .padding(.trailing, computedChinWidth / 2 + 6)
                     Color.clear.frame(maxWidth: .infinity)
                 }
                 .frame(height: vm.effectiveClosedNotchHeight)

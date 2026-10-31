@@ -391,38 +391,65 @@ struct StateDot: View {
     }
 }
 
-/// Indicateur de la pastille : anneau orange qui tourne (travail), point d'exclamation rouge (validation), coche verte (terminé).
-private struct StatusRing: View {
-    enum Kind { case working, attention, done }
+/// Bulle détachée à côté du notch (à la Droppy) : la mascotte pixel de l'agent, sans texte.
+/// - travail : mascotte orange qui « marche » (deux images de pattes en alternance)
+/// - validation : mascotte rouge qui se agite + liseré rouge qui pulse
+/// - repos : bulle réduite, mascotte verte atténuée et immobile
+private struct AgentBubble: View {
+    enum Kind { case working, attention, idle }
     let kind: Kind
-    @State private var spin = false
+    let height: CGFloat
     @State private var pulse = false
+
+    private var tint: Color { kind == .attention ? .red : kind == .idle ? .green : .orange }
+    private var diameter: CGFloat { max(height - 4, 20) * (kind == .idle ? 0.78 : 1) }
 
     var body: some View {
         ZStack {
-            switch kind {
-            case .working:
-                Circle().stroke(Color.orange.opacity(0.25), lineWidth: 2)
-                Circle().trim(from: 0, to: 0.7).stroke(Color.orange, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(spin ? 360 : 0))
-                    .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: spin)
-            case .attention:
-                Circle().fill(Color.red.opacity(pulse ? 0.9 : 0.5))
-                    .animation(.easeInOut(duration: 0.6).repeatForever(), value: pulse)
-                Text("!").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
-            case .done:
-                Circle().fill(Color.green)
-                Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(.black)
+            Circle().fill(.black)
+            if kind == .attention {
+                Circle().stroke(tint.opacity(pulse ? 0.9 : 0.25), lineWidth: 1.5)
+                    .animation(.easeInOut(duration: 0.7).repeatForever(), value: pulse)
             }
+            PixelMascot(color: tint, walking: kind == .working)
+                .scaleEffect(kind == .idle ? 0.8 : 1)
+                .opacity(kind == .idle ? 0.6 : 1)
+                .rotationEffect(.degrees(kind == .attention ? (pulse ? 7 : -7) : 0))
+                .animation(kind == .attention ? .easeInOut(duration: 0.16).repeatForever() : .default, value: pulse)
         }
-        .frame(width: 14, height: 14)
-        .onAppear { spin = true; pulse = true }
+        .frame(width: diameter, height: diameter)
+        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+        .animation(.spring(response: 0.45, dampingFraction: 0.78), value: kind)
+        .onAppear { pulse = true }
     }
 }
 
-/// Island à gauche du notch fermé : même langage visuel que le notch / la live activity Spotify
-/// (bord haut droit collé en haut, coins arrondis uniquement en bas).
-/// États : validation requise (rouge) > au travail (orange + anneau) > terminé (vert, 10 s).
+private struct PixelMascot: View {
+    let color: Color
+    let walking: Bool
+    private static let body = [".#.....#.", "#########", "##.###.##", "#########"]
+    private static let legsA = [".#.#.#.#.", "#.#...#.#"]
+    private static let legsB = ["#.#.#.#.#", ".#.....#."]
+    private let px: CGFloat = 2.1
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.32)) { t in
+            let alt = walking && Int(t.date.timeIntervalSinceReferenceDate / 0.32) % 2 == 1
+            let rows = Self.body + (alt ? Self.legsB : Self.legsA)
+            Canvas { ctx, _ in
+                for (y, row) in rows.enumerated() {
+                    for (x, c) in row.enumerated() where c == "#" {
+                        ctx.fill(Path(CGRect(x: CGFloat(x) * px, y: CGFloat(y) * px, width: px, height: px)), with: .color(color))
+                    }
+                }
+            }
+            .frame(width: px * 9, height: px * 6)
+        }
+    }
+}
+
+/// Bulle à gauche du notch fermé.
+/// Visible tant qu'une conversation est ouverte ; priorité : validation > travail > repos.
 struct AgentsPill: View {
     var height: CGFloat = 32
     var onTap: () -> Void = {}
@@ -430,26 +457,15 @@ struct AgentsPill: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            let justDone = store.lastFinished.map { ctx.date.timeIntervalSince($0) < 10 } ?? false
-            let kind: StatusRing.Kind? = store.needsAttention ? .attention
-                : store.activeCount > 0 ? .working : justDone ? .done : nil
+            let open = store.sessions.contains { ctx.date.timeIntervalSince($0.updatedAt) < 4 * 3600 }
+            let kind: AgentBubble.Kind? = store.needsAttention ? .attention
+                : store.activeCount > 0 ? .working : open ? .idle : nil
             if let kind {
-                let tint: Color = kind == .attention ? Color.red : kind == .done ? Color.green : Color.orange
                 Button(action: onTap) {
-                    StatusRing(kind: kind).id(kind)
-                        .padding(.horizontal, 14)
-                        .frame(height: height)
-                    .background(LinearGradient(colors: [.black, tint.opacity(0.28)], startPoint: .top, endPoint: .bottom))
-                    .background(.black)
-                    .clipShape(NotchShape(topCornerRadius: 6, bottomCornerRadius: 12))
-                    .overlay(NotchShape(topCornerRadius: 6, bottomCornerRadius: 12).stroke(tint.opacity(0.4), lineWidth: 1))
-                    .contentShape(Rectangle())
+                    AgentBubble(kind: kind, height: height).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .fixedSize()
-                .shadow(color: tint.opacity(kind == .done ? 0.25 : 0.4), radius: 8, y: 2)
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: kind)
-                .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
+                .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
                 .help("Ouvrir l'onglet Agents")
             }
         }

@@ -48,12 +48,12 @@ struct AgentSession: Identifiable, Equatable {
     var isActive: Bool { state != .done && Date().timeIntervalSince(updatedAt) < 300 }
 }
 
-struct RateLimit: Equatable {
+struct RateLimit: Equatable, Codable {
     var usedPercent: Double
     var resetsAt: Date?
 }
 
-struct UsageLimits: Equatable {
+struct UsageLimits: Equatable, Codable {
     var fiveHour: RateLimit?
     var sevenDay: RateLimit?
     var updatedAt = Date.distantPast

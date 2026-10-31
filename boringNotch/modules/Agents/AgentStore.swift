@@ -23,7 +23,10 @@ final class AgentStore: ObservableObject {
         var startedAt, updatedAt: Date
     }
 
+    private static let usageKey = "agentUsage"
+
     init() {
+        usage = (UserDefaults.standard.data(forKey: Self.usageKey)).flatMap { try? JSONDecoder().decode([String: UsageLimits].self, from: $0) } ?? [:]
         let saved = (UserDefaults.standard.data(forKey: Self.key)).flatMap { try? JSONDecoder().decode([Saved].self, from: $0) } ?? []
         sessions = saved.filter { Date().timeIntervalSince($0.updatedAt) < 24 * 3600 }.map {
             var s = AgentSession(id: $0.id, source: $0.source, cwd: $0.cwd, startedAt: $0.startedAt, updatedAt: $0.updatedAt)
@@ -169,5 +172,6 @@ final class AgentStore: ObservableObject {
         usage[source] = UsageLimits(fiveHour: map(l.five_hour) ?? old?.fiveHour,
                                     sevenDay: map(l.seven_day) ?? old?.sevenDay,
                                     updatedAt: .now)
+        UserDefaults.standard.set(try? JSONEncoder().encode(usage), forKey: Self.usageKey)   // survit au redémarrage de l'app
     }
 }
