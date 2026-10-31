@@ -371,6 +371,9 @@ struct ContentView: View {
                         NotchModules.view(for: id)
                     }
                 }
+                // Un onglet trop haut déborde vers le bas (coupé) au lieu de repousser l'en-tête hors de la notch.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .clipped()
                 .transition(
                     .scale(scale: 0.8, anchor: .top)
                     .combined(with: .opacity)
