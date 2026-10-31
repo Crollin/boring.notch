@@ -214,7 +214,6 @@ struct EventListView: View {
                 scrollToRelevantEvent(proxy: proxy)
             }
         }
-        Spacer(minLength: 0)
     }
 
     private func eventRow(_ event: EventModel) -> some View {
@@ -274,12 +273,7 @@ struct EventListView: View {
             return AnyView(
                 HStack(alignment: .top, spacing: 8) {
                     VStack(alignment: .trailing, spacing: 2) {
-                        if event.isAllDay {
-                            Text("All-day")
-                                .foregroundColor(Color(white: 0.65))
-                                .multilineTextAlignment(.trailing)
-                                .lineLimit(2)
-                        } else {
+                        if !event.isAllDay {
                             Text(event.start, style: .time)
                                 .foregroundColor(.white)
                             Text(event.end, style: .time)
@@ -287,7 +281,7 @@ struct EventListView: View {
                         }
                     }
                     .font(.caption.monospacedDigit())
-                    .frame(width: 52, alignment: .trailing)
+                    .frame(width: 40, alignment: .trailing)
 
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(Color(event.calendar.color))
@@ -300,8 +294,10 @@ struct EventListView: View {
                             .foregroundColor(.white)
                             .lineLimit(showFullEventTitles ? 2 : 1)
 
-                        if let location = event.location, !location.isEmpty {
-                            Text(location)
+                        let location = event.location.flatMap { $0.isEmpty ? nil : Text($0) }
+                        let subtitle = event.isAllDay ? Text("All-day") + (location.map { Text(" · ") + $0 } ?? Text("")) : location
+                        if let subtitle {
+                            subtitle
                                 .font(.caption)
                                 .foregroundColor(Color(white: 0.65))
                                 .lineLimit(1)
