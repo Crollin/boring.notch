@@ -50,6 +50,17 @@ private let secondary = Color.white.opacity(0.5)
 private let cardFill = Color.white.opacity(0.07)
 private let cardStroke = Color.white.opacity(0.10)
 
+/// Liquid Glass (macOS 26+) teinté ; repli sur un fond translucide + liseré avant.
+private extension View {
+    @ViewBuilder func glass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+        if #available(macOS 26, *) {
+            self.glassEffect(interactive ? .regular.tint(tint?.opacity(0.35)).interactive() : .regular.tint(tint?.opacity(0.35)), in: shape)
+        } else {
+            self.background(shape.fill(tint?.opacity(0.18) ?? cardFill)).overlay(shape.stroke(cardStroke))
+        }
+    }
+}
+
 // MARK: - Onglet
 
 struct AgentsView: View {
@@ -103,7 +114,7 @@ struct AgentsView: View {
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(on ? accent(s.source) : secondary)
             .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Capsule().fill(on ? accent(s.source).opacity(0.18) : .white.opacity(0.06)))
+            .glass(Capsule(), tint: on ? accent(s.source) : nil, interactive: true)
         }
         .buttonStyle(.plain)
     }
@@ -114,7 +125,7 @@ struct AgentsView: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(active ? Color.green : secondary)
                 .frame(width: 26, height: 26)
-                .background(Circle().fill(active ? Color.green.opacity(0.22) : .white.opacity(0.08)))
+                .glass(Circle(), tint: active ? .green : nil, interactive: true)
         }
         .buttonStyle(.plain)
     }
@@ -147,17 +158,7 @@ struct AgentsView: View {
             .help("Ouvrir le terminal")
     }
 
-    /// Ramène au premier plan le terminal / l'IDE qui héberge la conversation.
-    /// ponytail: active l'app seulement ; sélectionner l'onglet exact demanderait AppleScript par terminal.
-    private func openTerminal(_ s: AgentSession) {
-        // ponytail: Termix par défaut quand l'app n'est pas connue ; à rendre configurable si besoin.
-        let id = s.app ?? "com.karmaa.termix"
-        if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == id }) {
-            app.activate(options: [.activateAllWindows])
-        } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
-            NSWorkspace.shared.openApplication(at: url, configuration: .init())
-        }
-    }
+    private func openTerminal(_ s: AgentSession) { AgentStore.shared.openTerminal(s) }
 
     private func agentHeaderContent(_ s: AgentSession) -> some View {
         HStack(spacing: 8) {
@@ -238,11 +239,26 @@ private struct ActivityCard: View {
             .font(.system(size: 12, weight: .bold, design: .monospaced))
             .foregroundStyle(waiting ? Color.orange : color)
             Text(subtitle).font(.system(size: 11)).foregroundStyle(secondary).lineLimit(2)
+            if waiting {
+                HStack(spacing: 8) {
+                    decisionButton("Refuser", tint: nil, text: .white) { AgentStore.shared.decide(session.id, allow: false) }
+                    decisionButton("Autoriser", tint: .orange, text: .white) { AgentStore.shared.decide(session.id, allow: true) }
+                }
+                .padding(.top, 2)
+            }
             ProgressLine(running: waiting || (step.map { !$0.done } ?? false && session.isActive), color: waiting ? .orange : color)
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(waiting ? Color.orange.opacity(0.12) : cardFill))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(waiting ? Color.orange.opacity(0.5) : cardStroke))
+        .glass(RoundedRectangle(cornerRadius: 16, style: .continuous), tint: waiting ? .orange : nil)
+    }
+
+    private func decisionButton(_ label: String, tint: Color?, text: Color, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(text)
+                .frame(maxWidth: .infinity).padding(.vertical, 5)
+                .glass(Capsule(), tint: tint, interactive: true)
+        }
+        .buttonStyle(.plain)
     }
 
     private var title: String {
@@ -304,8 +320,7 @@ private struct UsageBlock: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(cardFill))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(cardStroke))
+        .glass(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -376,26 +391,67 @@ struct StateDot: View {
     }
 }
 
+/// Indicateur de la pastille : anneau orange qui tourne (travail), point d'exclamation rouge (validation), coche verte (terminé).
+private struct StatusRing: View {
+    enum Kind { case working, attention, done }
+    let kind: Kind
+    @State private var spin = false
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            switch kind {
+            case .working:
+                Circle().stroke(Color.orange.opacity(0.25), lineWidth: 2)
+                Circle().trim(from: 0, to: 0.7).stroke(Color.orange, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(spin ? 360 : 0))
+                    .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: spin)
+            case .attention:
+                Circle().fill(Color.red.opacity(pulse ? 0.9 : 0.5))
+                    .animation(.easeInOut(duration: 0.6).repeatForever(), value: pulse)
+                Text("!").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+            case .done:
+                Circle().fill(Color.green)
+                Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(.black)
+            }
+        }
+        .frame(width: 14, height: 14)
+        .onAppear { spin = true; pulse = true }
+    }
+}
+
 /// Island à gauche du notch fermé : même langage visuel que le notch / la live activity Spotify
 /// (bord haut droit collé en haut, coins arrondis uniquement en bas).
+/// États : validation requise (rouge) > au travail (orange + anneau) > terminé (vert, 10 s).
 struct AgentsPill: View {
     var height: CGFloat = 32
+    var onTap: () -> Void = {}
     @ObservedObject private var store = AgentStore.shared
 
     var body: some View {
-        if store.activeCount > 0 {
-            HStack(spacing: 6) {
-                StateDot(state: store.needsAttention ? .waiting : .running(tool: ""))
-                Text(store.needsAttention ? "Validation" : "\(store.activeCount)")
-                    .font(.system(size: 11, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(store.needsAttention ? Color.orange : .white)
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            let justDone = store.lastFinished.map { ctx.date.timeIntervalSince($0) < 10 } ?? false
+            let kind: StatusRing.Kind? = store.needsAttention ? .attention
+                : store.activeCount > 0 ? .working : justDone ? .done : nil
+            if let kind {
+                let tint: Color = kind == .attention ? Color.red : kind == .done ? Color.green : Color.orange
+                Button(action: onTap) {
+                    StatusRing(kind: kind).id(kind)
+                        .padding(.horizontal, 14)
+                        .frame(height: height)
+                    .background(LinearGradient(colors: [.black, tint.opacity(0.28)], startPoint: .top, endPoint: .bottom))
+                    .background(.black)
+                    .clipShape(NotchShape(topCornerRadius: 6, bottomCornerRadius: 12))
+                    .overlay(NotchShape(topCornerRadius: 6, bottomCornerRadius: 12).stroke(tint.opacity(0.4), lineWidth: 1))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .fixedSize()
+                .shadow(color: tint.opacity(kind == .done ? 0.25 : 0.4), radius: 8, y: 2)
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: kind)
+                .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
+                .help("Ouvrir l'onglet Agents")
             }
-            .padding(.horizontal, 16)
-            .frame(height: height)
-            .background(.black)
-            .clipShape(NotchShape(topCornerRadius: 6, bottomCornerRadius: 12))
-            .fixedSize()
-            .transition(.opacity)
         }
     }
 }

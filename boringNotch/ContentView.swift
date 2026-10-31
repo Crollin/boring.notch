@@ -209,13 +209,15 @@ struct ContentView: View {
         .overlay(alignment: .top) {
             if vm.notchState == .closed {
                 HStack(spacing: 0) {
-                    HStack { Spacer(minLength: 0); AgentsPill(height: vm.effectiveClosedNotchHeight) }
+                    HStack { Spacer(minLength: 0); AgentsPill(height: vm.effectiveClosedNotchHeight) {
+                        coordinator.currentView = .module("agents")
+                        doOpen()
+                    } }
                         .frame(maxWidth: .infinity)
                         .padding(.trailing, computedChinWidth / 2 + 8)
                     Color.clear.frame(maxWidth: .infinity)
                 }
                 .frame(height: vm.effectiveClosedNotchHeight)
-                .allowsHitTesting(false)
             }
         }
         .compositingGroup()

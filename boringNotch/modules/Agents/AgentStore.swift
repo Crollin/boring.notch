@@ -10,6 +10,7 @@ final class AgentStore: ObservableObject {
     static let shared = AgentStore()
 
     @Published private(set) var sessions: [AgentSession] = []
+    @Published private(set) var lastFinished: Date?   // dernier Stop, pour l'état « terminé » de la pastille
     @Published private(set) var usage: [String: UsageLimits] = [:]   // par source (claude, codex...)
 
     private static let key = "agentSessions"
@@ -38,9 +39,39 @@ final class AgentStore: ObservableObject {
     }
 
     var activeCount: Int { sessions.filter(\.isActive).count }
-    var needsAttention: Bool { sessions.contains { $0.state == .waiting } }
+    var needsAttention: Bool { sessions.contains { $0.state == .waiting && Date().timeIntervalSince($0.updatedAt) < 600 } }
 
-    func apply(_ env: AgentEnvelope) {
+    /// Session vers laquelle ramène la pastille : validation en attente > au travail > la plus récente.
+    var focusSession: AgentSession? {
+        sessions.first { $0.state == .waiting } ?? sessions.first { $0.isActive } ?? sessions.first
+    }
+
+    /// Ramène au premier plan le terminal / l'IDE qui héberge la conversation.
+    /// ponytail: active l'app seulement ; sélectionner l'onglet exact demanderait AppleScript par terminal.
+    func openTerminal(_ s: AgentSession) {
+        // ponytail: Termix par défaut quand l'app n'est pas connue ; à rendre configurable si besoin.
+        let id = s.app ?? "com.karmaa.termix"
+        // openApplication active aussi une app déjà lancée ; NSRunningApplication.activate est ignoré depuis une app non active.
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else { return }
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: cfg)
+    }
+
+    /// Réponses en attente d'une décision, par session (hook PermissionRequest bloquant).
+    private var responders: [String: (String?) -> Void] = [:]
+
+    /// Autoriser / refuser depuis le notch : renvoie la décision au hook, qui la transmet à l'agent.
+    func decide(_ sid: String, allow: Bool) {
+        guard let r = responders.removeValue(forKey: sid) else { return }
+        let decision = allow ? "{\"behavior\":\"allow\"}" : "{\"behavior\":\"deny\",\"message\":\"Refusé depuis Boring Notch\"}"
+        r("{\"hookSpecificOutput\":{\"hookEventName\":\"PermissionRequest\",\"decision\":\(decision)}}")
+        guard var s = sessions.first(where: { $0.id == sid }) else { return }
+        s.pending = nil; s.state = .thinking
+        upsert(s)
+    }
+
+    func apply(_ env: AgentEnvelope, reply: ((String?) -> Void)? = nil) {
         let p = env.payload
         if let l = p.rate_limits { applyUsage(l, source: env.source) }
         guard let sid = p.session_id else { return }
@@ -54,6 +85,8 @@ final class AgentStore: ObservableObject {
         if let f = p.tool_input?.file_path { s.file = f }
         let wasWaiting = s.state == .waiting
         s.pending = nil
+        // Une autre activité de la session = la validation a été traitée ailleurs (terminal) : on libère le hook.
+        if p.hook_event_name != "PermissionRequest" { responders.removeValue(forKey: sid)?(nil) }
 
         switch p.hook_event_name {
         case "UserPromptSubmit":
@@ -67,10 +100,12 @@ final class AgentStore: ObservableObject {
             finishStep(&s, p)
         case "PermissionRequest":
             s.state = .waiting
+            if let reply { responders.removeValue(forKey: sid)?(nil); responders[sid] = reply }
             s.pending = Self.label(p.tool_name ?? "…", p.tool_input)
             if !wasWaiting { NSSound(named: "Glass")?.play() }
         case "Stop":
             s.state = .done
+            lastFinished = .now
             for i in s.steps.indices where !s.steps[i].done { s.steps[i].duration = Date().timeIntervalSince(s.steps[i].started) }
         case "SessionEnd":
             sessions.removeAll { $0.id == sid }

@@ -44,7 +44,8 @@ struct AgentSession: Identifiable, Equatable {
     var updatedAt: Date
 
     var project: String { cwd.map { ($0 as NSString).lastPathComponent } ?? "?" }
-    var isActive: Bool { state != .done }
+    /// Sans événement depuis 5 min (interruption par Échap, terminal fermé : aucun hook Stop), la session est considérée inactive.
+    var isActive: Bool { state != .done && Date().timeIntervalSince(updatedAt) < 300 }
 }
 
 struct RateLimit: Equatable {
@@ -115,5 +116,6 @@ struct AgentEnvelope: Decodable {
     var source: String
     var kind: String?
     var app: String?
+    var wait: Bool?          // le hook attend une décision (PermissionRequest)
     var payload: Payload
 }

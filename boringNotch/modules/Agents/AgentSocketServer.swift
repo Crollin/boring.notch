@@ -47,12 +47,17 @@ final class AgentSocketServer {
 
     private func read(_ client: Int32) {
         DispatchQueue.global(qos: .utility).async {
-            defer { close(client) }
             var data = Data()
             var buf = [UInt8](repeating: 0, count: 4096)
             while case let n = recv(client, &buf, buf.count, 0), n > 0 { data.append(buf, count: n) }
-            guard let env = try? JSONDecoder().decode(AgentEnvelope.self, from: data) else { return }
-            Task { @MainActor in AgentStore.shared.apply(env) }
+            guard let env = try? JSONDecoder().decode(AgentEnvelope.self, from: data) else { close(client); return }
+            // Hook bloquant : on garde la connexion ouverte jusqu'à la décision de l'utilisateur.
+            let reply: ((String?) -> Void)? = env.wait == true ? { text in
+                if let text { _ = text.withCString { send(client, $0, strlen($0), 0) } }
+                close(client)
+            } : nil
+            if reply == nil { close(client) }
+            Task { @MainActor in AgentStore.shared.apply(env, reply: reply) }
         }
     }
 }
