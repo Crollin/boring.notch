@@ -14,12 +14,21 @@ import SwiftUI
 
 struct MusicPlayerView: View {
     @EnvironmentObject var vm: BoringViewModel
+    @ObservedObject private var sonos = SonosStore.shared
     let albumArtNamespace: Namespace.ID
 
     var body: some View {
         HStack {
             AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace).padding(.all, 5)
-            MusicControlsView().drawingGroup().compositingGroup()
+            // Hors du drawingGroup : ScrollView et TextField ne s'y dessinent pas.
+            if sonos.pickerOpen && sonos.isActive {
+                VStack(alignment: .leading, spacing: 4) {
+                    SonosPickerView()
+                    SonosRowView()
+                }
+            } else {
+                MusicControlsView().drawingGroup().compositingGroup()
+            }
         }
     }
 }
@@ -119,18 +128,12 @@ struct MusicControlsView: View {
     @Default(.musicControlSlots) private var slotConfig
     @Default(.musicControlSlotLimit) private var slotLimit
 
-    @State private var sonosPickerOpen = false
     @ObservedObject private var sonos = SonosStore.shared
 
     var body: some View {
         VStack(alignment: .leading) {
-            if sonosPickerOpen && sonos.isActive {
-                SonosPickerView(isOpen: $sonosPickerOpen)
-                SonosRowView(pickerOpen: $sonosPickerOpen)
-            } else {
-                songInfoAndSlider
-            }
-            if !sonosPickerOpen { slotToolbar }
+            songInfoAndSlider
+            slotToolbar
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -163,7 +166,7 @@ struct MusicControlsView: View {
             .fontWeight(.medium)
             // ponytail: la notch a une hauteur fixe ; la ligne Sonos prend la place des paroles.
             if sonos.isActive {
-                SonosRowView(pickerOpen: $sonosPickerOpen)
+                SonosRowView()
             } else if Defaults[.enableLyrics] {
                 TimelineView(.animation(minimumInterval: 0.25)) { timeline in
                     let currentElapsed: Double = {

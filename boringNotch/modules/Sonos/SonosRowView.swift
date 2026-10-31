@@ -12,17 +12,17 @@ import SwiftUI
 /// Ligne `[Cuisine ▾] 🔈 ───●─── 🔊`. Rien si Spotify ne joue pas sur une Sonos.
 struct SonosRowView: View {
     @ObservedObject var store = SonosStore.shared
-    @Binding var pickerOpen: Bool
+    private var pickerOpen: Bool { store.pickerOpen }
 
     var body: some View {
         if store.isActive {
             HStack(spacing: 8) {
                 Button {
-                    withAnimation(.smooth(duration: 0.2)) { pickerOpen.toggle() }
+                    withAnimation(.smooth(duration: 0.2)) { store.pickerOpen.toggle() }
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: "hifispeaker.fill").font(.system(size: 9))
-                        Text(store.label).lineLimit(1)
+                        Text(store.label).lineLimit(1).fixedSize()
                         Image(systemName: pickerOpen ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .bold))
                     }
                     .font(.system(size: 11, weight: .medium))
@@ -48,7 +48,6 @@ struct SonosPickerView: View {
     @ObservedObject var store = SonosStore.shared
     @Default(.sonosFavorites) private var favorites
     @Default(.sonosLastGroup) private var lastGroup
-    @Binding var isOpen: Bool
     @State private var naming = false
     @State private var newName = ""
 
@@ -134,7 +133,7 @@ struct SonosPickerView: View {
 
     /// Changement de pièce : on referme la liste, comme un menu.
     private func run(_ action: @escaping () async -> Void) {
-        withAnimation(.smooth(duration: 0.2)) { isOpen = false }
+        withAnimation(.smooth(duration: 0.2)) { store.pickerOpen = false }
         Task { await action() }
     }
 
