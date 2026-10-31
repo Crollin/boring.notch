@@ -54,7 +54,7 @@ struct InlineHUD: View {
                 .foregroundStyle(.white)
                 .symbolVariant(.fill)
                 
-                Text(Type2Name(type))
+                Text(icon == SonosStore.hudIcon ? SonosStore.shared.label : Type2Name(type))
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .lineLimit(1)

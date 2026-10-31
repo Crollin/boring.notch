@@ -324,6 +324,8 @@ struct ContentView: View {
                                   icon: $coordinator.sneakPeek.icon,
                                   sendEventBack: { newVal in
                                       switch coordinator.sneakPeek.type {
+                                      case .volume where coordinator.sneakPeek.icon == SonosStore.hudIcon:
+                                          Task { await SonosStore.shared.setGroupVolume(Int(newVal * 100)) }
                                       case .volume:
                                           VolumeManager.shared.setAbsolute(Float32(newVal))
                                       case .brightness:

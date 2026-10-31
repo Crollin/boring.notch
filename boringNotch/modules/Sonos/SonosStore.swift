@@ -205,6 +205,14 @@ final class SonosStore: ObservableObject {
         try? await client.setGroupMute(coordinator: h, !muted)
     }
 
+    /// Icône du HUD volume quand il affiche la Sonos (les vues HUD y ajoutent `label`).
+    static let hudIcon = "hifispeaker.fill"
+
+    func showHUD() {
+        BoringViewCoordinator.shared.toggleSneakPeek(
+            status: true, type: .volume, value: CGFloat(groupVolume) / 100, icon: Self.hudIcon)
+    }
+
     // MARK: - Favoris
 
     func saveFavorite(name: String) {
