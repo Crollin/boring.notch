@@ -73,13 +73,13 @@ private func accent(_ source: String) -> Color {
 
 extension AgentSession {
     /// Même code couleur que la bulle : rouge = validation, orange = travail, vert = repos.
-    var tint: Color { state == .waiting ? .red : isActive ? .orange : .green }
+    var tint: Color { state == .waiting ? .red : isActive ? .orange : awaitsReply ? .blue : .green }
     var stateText: String {
         switch state {
         case .waiting: "Validation requise"
         case .thinking where isActive: "Réfléchit…"
         case .running where isActive: "Au travail"
-        default: "Au repos"
+        default: awaitsReply ? "Attend votre réponse" : "Au repos"
         }
     }
 }
@@ -461,14 +461,16 @@ struct StateDot: View {
 /// Bulle détachée à côté du notch (à la Droppy) : la mascotte pixel de l'agent, sans texte.
 /// - travail : mascotte orange qui « marche » (deux images de pattes en alternance)
 /// - validation : mascotte rouge qui se agite + liseré rouge qui pulse
+/// - réponse attendue : mascotte bleue qui sautille + « ? » (une conversation attend votre suite)
 /// - repos : bulle réduite, mascotte verte atténuée et immobile
 private struct AgentBubble: View {
-    enum Kind { case working, attention, idle }
+    enum Kind { case working, attention, reply, idle }
     let kind: Kind
+    var badge = false      // une autre conversation attend une réponse
     let height: CGFloat
     @State private var pulse = false
 
-    private var tint: Color { kind == .attention ? .red : kind == .idle ? .green : .orange }
+    private var tint: Color { kind == .attention ? .red : kind == .idle ? .green : kind == .reply ? .blue : .orange }
     private var diameter: CGFloat { max(height - 4, 20) * (kind == .idle ? 0.78 : 1) }
 
     var body: some View {
@@ -480,11 +482,21 @@ private struct AgentBubble: View {
             }
             PixelMascot(color: tint, walking: kind == .working)
                 .scaleEffect(kind == .idle ? 0.8 : 1)
+                .offset(y: kind == .reply && pulse ? -1.5 : 0)
+                .animation(kind == .reply ? .easeInOut(duration: 0.55).repeatForever() : .default, value: pulse)
                 .opacity(kind == .idle ? 0.6 : 1)
                 .rotationEffect(.degrees(kind == .attention ? (pulse ? 7 : -7) : 0))
                 .animation(kind == .attention ? .easeInOut(duration: 0.16).repeatForever() : .default, value: pulse)
         }
         .frame(width: diameter, height: diameter)
+        .overlay(alignment: .topTrailing) {
+            if kind == .reply || badge {
+                Text("?").font(.system(size: 7, weight: .heavy)).foregroundStyle(.white)
+                    .frame(width: 11, height: 11).background(Circle().fill(Color.blue))
+                    .overlay(Circle().stroke(.black, lineWidth: 1.5))
+                    .offset(x: 3, y: -2).transition(.scale)
+            }
+        }
         .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
         .animation(.spring(response: 0.45, dampingFraction: 0.78), value: kind)
         .onAppear { pulse = true }
@@ -526,10 +538,10 @@ struct AgentsPill: View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
             let open = store.sessions.contains { ctx.date.timeIntervalSince($0.updatedAt) < 4 * 3600 }
             let kind: AgentBubble.Kind? = store.needsAttention ? .attention
-                : store.activeCount > 0 ? .working : open ? .idle : nil
+                : store.activeCount > 0 ? .working : store.needsReply ? .reply : open ? .idle : nil
             if let kind {
                 Button(action: onTap) {
-                    AgentBubble(kind: kind, height: height).contentShape(Rectangle())
+                    AgentBubble(kind: kind, badge: store.needsReply, height: height).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))

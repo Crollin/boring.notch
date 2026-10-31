@@ -36,6 +36,7 @@ struct AgentSession: Identifiable, Equatable {
     var title: String?          // premier prompt de la session
     var app: String?            // bundle id du terminal / IDE, pour rouvrir la conversation
     var pending: String?        // action en attente de validation
+    var awaitsReply = false     // le dernier message de l'agent appelle une réponse de l'utilisateur
     var state: AgentState = .thinking
     var file: String?
     var steps: [AgentStep] = []
@@ -71,6 +72,8 @@ struct AgentEnvelope: Decodable {
         var hook_event_name: String?
         var cwd: String?
         var prompt: String?
+        var last_message: String?
+        var last_assistant_message: String?
         var tool_name: String?
         var tool_use_id: String?
         var tool_input: ToolInput?

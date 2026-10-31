@@ -20,6 +20,7 @@ final class AgentStore: ObservableObject {
     private struct Saved: Codable {
         var id, source: String
         var cwd, title, app: String?
+        var awaitsReply: Bool?
         var startedAt, updatedAt: Date
     }
 
@@ -30,15 +31,28 @@ final class AgentStore: ObservableObject {
         let saved = (UserDefaults.standard.data(forKey: Self.key)).flatMap { try? JSONDecoder().decode([Saved].self, from: $0) } ?? []
         sessions = saved.filter { Date().timeIntervalSince($0.updatedAt) < 24 * 3600 }.map {
             var s = AgentSession(id: $0.id, source: $0.source, cwd: $0.cwd, startedAt: $0.startedAt, updatedAt: $0.updatedAt)
-            s.title = $0.title; s.app = $0.app; s.state = .done
+            s.title = $0.title; s.app = $0.app; s.state = .done; s.awaitsReply = $0.awaitsReply ?? false
             return s
         }
     }
 
     private func save() {
-        let saved = sessions.map { Saved(id: $0.id, source: $0.source, cwd: $0.cwd, title: $0.title, app: $0.app,
+        let saved = sessions.map { Saved(id: $0.id, source: $0.source, cwd: $0.cwd, title: $0.title, app: $0.app, awaitsReply: $0.awaitsReply,
                                          startedAt: $0.startedAt, updatedAt: $0.updatedAt) }
         UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: Self.key)
+    }
+
+    /// Une conversation au repos dont le dernier message attend une réponse (à ne pas oublier).
+    var needsReply: Bool { sessions.contains { $0.awaitsReply && !$0.isActive && Date().timeIntervalSince($0.updatedAt) < 4 * 3600 } }
+
+    /// Heuristique : la fin du message pose une question ou invite à répondre.
+    static func asksForReply(_ text: String?) -> Bool {
+        guard let text else { return false }
+        let tail = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.suffix(2)
+        let junk = CharacterSet(charactersIn: "*_)\"'`»” ")
+        if tail.contains(where: { $0.trimmingCharacters(in: junk).hasSuffix("?") }) { return true }
+        let l = (tail.last ?? "").lowercased()
+        return ["let me know", "dis-moi", "dites-moi", "tu veux que", "voulez-vous", "veux-tu"].contains { l.contains($0) }
     }
 
     var activeCount: Int { sessions.filter(\.isActive).count }
@@ -88,6 +102,7 @@ final class AgentStore: ObservableObject {
         if let f = p.tool_input?.file_path { s.file = f }
         let wasWaiting = s.state == .waiting
         s.pending = nil
+        s.awaitsReply = false
         // Une autre activité de la session = la validation a été traitée ailleurs (terminal) : on libère le hook.
         if p.hook_event_name != "PermissionRequest" { responders.removeValue(forKey: sid)?(nil) }
 
@@ -108,6 +123,7 @@ final class AgentStore: ObservableObject {
             if !wasWaiting { NSSound(named: "Glass")?.play() }
         case "Stop":
             s.state = .done
+            s.awaitsReply = Self.asksForReply(p.last_message ?? p.last_assistant_message)
             lastFinished = .now
             for i in s.steps.indices where !s.steps[i].done { s.steps[i].duration = Date().timeIntervalSince(s.steps[i].started) }
         case "SessionEnd":

@@ -1,0 +1,42 @@
+<style>
+.n{background:#000;color:#eee;border-radius:0 0 22px 22px;padding:14px 16px;font:13px -apple-system,sans-serif;width:100%;box-sizing:border-box}
+.row{display:flex;align-items:center;gap:10px}
+.art{width:46px;height:46px;border-radius:8px;background:linear-gradient(135deg,#1db954,#0a5)}
+.t b{display:block}.t span{color:#888;font-size:12px}
+.ctl{margin-left:auto;display:flex;gap:12px;font-size:15px}
+.bar{height:4px;background:#333;border-radius:2px;flex:1;position:relative}.bar i{position:absolute;left:0;top:0;bottom:0;width:45%;background:#fff;border-radius:2px}
+.chip{background:#222;border-radius:10px;padding:3px 9px;font-size:12px}
+.chip.on{background:#1db954;color:#000}
+.tabs{display:flex;gap:8px;margin-bottom:10px;color:#888;font-size:12px}.tabs .s{color:#fff}
+.room{display:flex;align-items:center;gap:8px;padding:5px 0}
+.room .bar{max-width:140px}
+.dim{color:#666;font-size:11px}
+</style>
+<h2>Où mettre le contrôle Sonos dans la notch ?</h2>
+<p class="subtitle">Trois façons de l'intégrer. Clique sur celle qui te parle le plus (tu peux commenter dans le terminal).</p>
+<div class="cards">
+ <div class="card" data-choice="a" onclick="toggleSelect(this)">
+  <div class="card-image"><div class="n">
+   <div class="row"><div class="art"></div><div class="t"><b>Titre du morceau</b><span>Artiste</span></div><div class="ctl">⏮ ⏸ ⏭ <span>🔊</span></div></div>
+   <div class="row" style="margin-top:12px"><span class="chip on">Cuisine ▾</span><span>🔈</span><div class="bar"><i></i></div><span>🔊</span></div>
+  </div></div>
+  <div class="card-body"><h3>A — Dans le lecteur musique</h3><p>Sous le lecteur, une ligne avec la pièce active et le volume. Toucher la pièce ouvre le choix des pièces. Tout tient sur un seul écran.</p></div>
+ </div>
+ <div class="card" data-choice="b" onclick="toggleSelect(this)">
+  <div class="card-image"><div class="n">
+   <div class="tabs"><span>Accueil</span><span>Étagère</span><span>Agents</span><span class="s">Sonos</span></div>
+   <div class="room"><span class="chip on">● Cuisine</span><div class="bar"><i></i></div><span class="dim">45</span></div>
+   <div class="room"><span class="chip">○ Bureau</span><div class="bar"><i style="width:30%"></i></div><span class="dim">30</span></div>
+   <div class="room"><span class="chip">○ Salon</span><div class="bar"><i style="width:20%"></i></div><span class="dim">20</span></div>
+  </div></div>
+  <div class="card-body"><h3>B — Un onglet Sonos à part</h3><p>Comme l'onglet Agents. Toutes les pièces sont listées, chacune avec son volume. Un tap déplace la musique, un appui long ajoute la pièce.</p></div>
+ </div>
+ <div class="card" data-choice="c" onclick="toggleSelect(this)">
+  <div class="card-image"><div class="n">
+   <div class="row"><div class="art"></div><div class="t"><b>Titre du morceau</b><span>Artiste · <u>Cuisine</u></span></div><div class="ctl">⏮ ⏸ ⏭</div></div>
+   <div class="row" style="margin-top:12px"><span class="chip on">Cuisine</span><span class="chip">Bureau</span><span class="chip">Salon</span><span class="chip">＋</span></div>
+   <div class="row" style="margin-top:8px"><span>🔈</span><div class="bar"><i></i></div><span>🔊</span></div>
+  </div></div>
+  <div class="card-body"><h3>C — Lecteur avec pièces toujours visibles</h3><p>Les pièces sont affichées en pastilles sous le lecteur : un tap pour déplacer la musique, ＋ pour en ajouter une. Pas de menu à ouvrir, mais la notch est plus haute.</p></div>
+ </div>
+</div>
