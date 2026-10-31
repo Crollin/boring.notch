@@ -184,10 +184,11 @@ struct CalendarView: View {
     @State private var selectedDate = Date()
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading) {
-                    Text(selectedDate.formatted(.dateTime.month(.abbreviated)))
+        // Onglet pleine largeur : dates à gauche, événements à droite.
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(selectedDate.formatted(.dateTime.month(.wide)).capitalized)
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.white)
@@ -196,6 +197,7 @@ struct CalendarView: View {
                         .fontWeight(.light)
                         .foregroundColor(Color(white: 0.65))
                 }
+                .padding(.leading, 4)
 
                 ZStack(alignment: .top) {
                     WheelPicker(selectedDate: $selectedDate, config: Config())
@@ -210,21 +212,27 @@ struct CalendarView: View {
                         )
                         .frame(width: 20)
                     }
+                    .allowsHitTesting(false)
                 }
             }
+            .frame(width: 280)
 
             let filteredEvents = EventListView.filteredEvents(
                 events: calendarManager.events
             )
-            if filteredEvents.isEmpty {
-                EmptyEventsView(selectedDate: selectedDate)
-                Spacer(minLength: 0)
-            } else {
-                EventListView(events: calendarManager.events)
+            Group {
+                if filteredEvents.isEmpty {
+                    EmptyEventsView(selectedDate: selectedDate)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    EventListView(events: calendarManager.events)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .listRowBackground(Color.clear)
-        .frame(height: 120)
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: selectedDate) {
             Task {
                 await calendarManager.updateCurrentDate(selectedDate)
@@ -474,7 +482,7 @@ struct ReminderToggle: View {
 
 #Preview {
     CalendarView()
-        .frame(width: 215, height: 130)
+        .frame(width: 640, height: 140)
         .background(.black)
         .environmentObject(BoringViewModel())
 }
