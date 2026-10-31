@@ -20,7 +20,6 @@ final class SonosStore: ObservableObject {
     @Published private(set) var activeGroup: SonosGroup?
     @Published private(set) var groupVolume: Int = 0
     @Published private(set) var roomVolumes: [String: Int] = [:]
-    @Published var pickerOpen = false
 
     var isActive: Bool { activeGroup != nil }
     var label: String { activeGroup.map { SonosLogic.label(for: $0, rooms: rooms) } ?? "" }
@@ -117,7 +116,6 @@ final class SonosStore: ObservableObject {
 
     private func setInactive() {
         if activeGroup != nil { activeGroup = nil }
-        if pickerOpen { pickerOpen = false }
         if !roomVolumes.isEmpty { roomVolumes = [:] }
     }
 

@@ -18,18 +18,19 @@ struct MusicPlayerView: View {
     let albumArtNamespace: Namespace.ID
 
     var body: some View {
-        HStack {
-            AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace).padding(.all, 5)
-            // Hors du drawingGroup : ScrollView et TextField ne s'y dessinent pas.
-            if sonos.pickerOpen && sonos.isActive {
-                VStack(alignment: .leading, spacing: 4) {
-                    SonosPickerView()
-                    SonosRowView()
-                }
-            } else {
-                MusicControlsView().drawingGroup().compositingGroup()
+        HStack(alignment: .center, spacing: 12) {
+            AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace)
+                .frame(width: 110, height: 110)
+            MusicControlsView().drawingGroup().compositingGroup()
+            if sonos.isActive {
+                Rectangle().fill(.white.opacity(0.08)).frame(width: 1).padding(.vertical, 6)
+                SonosPanelView()
+                    .frame(width: 180)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
         }
+        .padding(.horizontal, 6)
+        .animation(.smooth(duration: 0.25), value: sonos.isActive)
     }
 }
 
@@ -128,25 +129,18 @@ struct MusicControlsView: View {
     @Default(.musicControlSlots) private var slotConfig
     @Default(.musicControlSlotLimit) private var slotLimit
 
-    @ObservedObject private var sonos = SonosStore.shared
-
+    // Haut aligné sur la pochette (titre), bas aligné sur la pochette (commandes).
     var body: some View {
-        VStack(alignment: .leading) {
-            songInfoAndSlider
-            slotToolbar
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-
-    private var songInfoAndSlider: some View {
         GeometryReader { geo in
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 songInfo(width: geo.size.width)
                 musicSlider
+                Spacer(minLength: 0)
+                slotToolbar
             }
         }
-        .padding(.top, 10)
-        .padding(.leading, 5)
+        .frame(height: 110)
+        .buttonStyle(PlainButtonStyle())
     }
 
     private func songInfo(width: CGFloat) -> some View {
@@ -164,10 +158,7 @@ struct MusicControlsView: View {
                 frameWidth: width
             )
             .fontWeight(.medium)
-            // ponytail: la notch a une hauteur fixe ; la ligne Sonos prend la place des paroles.
-            if sonos.isActive {
-                SonosRowView()
-            } else if Defaults[.enableLyrics] {
+            if Defaults[.enableLyrics] {
                 TimelineView(.animation(minimumInterval: 0.25)) { timeline in
                     let currentElapsed: Double = {
                         guard musicManager.isPlaying else { return musicManager.elapsedTime }
@@ -219,8 +210,7 @@ struct MusicControlsView: View {
             ) { newValue in
                 MusicManager.shared.seek(to: newValue)
             }
-            .padding(.top, 5)
-            .frame(height: 36)
+            .frame(height: 16)
         }
     }
 
@@ -478,7 +468,9 @@ struct MusicSliderView: View {
 
 
     var body: some View {
-        VStack {
+        HStack(spacing: 8) {
+            Text(timeString(from: sliderValue))
+                .frame(minWidth: 32, alignment: .leading)
             CustomSlider(
                 value: $sliderValue,
                 range: 0...duration,
@@ -490,19 +482,16 @@ struct MusicSliderView: View {
                 onValueChange: onValueChange
             )
             .frame(height: 10, alignment: .center)
-
-            HStack {
-                Text(timeString(from: sliderValue))
-                Spacer()
-                Text(timeString(from: duration))
-            }
-            .fontWeight(.medium)
-            .foregroundColor(
-                Defaults[.playerColorTinting]
-                    ? Color(nsColor: color).ensureMinimumBrightness(factor: 0.6) : .gray
-            )
-            .font(.caption)
+            Text("-" + timeString(from: max(0, duration - sliderValue)))
+                .frame(minWidth: 36, alignment: .trailing)
         }
+        .fontWeight(.medium)
+        .monospacedDigit()
+        .foregroundColor(
+            Defaults[.playerColorTinting]
+                ? Color(nsColor: color).ensureMinimumBrightness(factor: 0.6) : .gray
+        )
+        .font(.caption)
         .onChange(of: currentDate) {
            guard !dragging, timestampDate.timeIntervalSince(lastDragged) > -1 else { return }
             sliderValue = MusicManager.shared.estimatedPlaybackPosition(at: currentDate)
