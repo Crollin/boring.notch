@@ -64,7 +64,7 @@ struct CalendarView: View {
         // Agenda : date en grand + semaine à gauche, événements à droite.
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 0) {
-                Button { selectedDate = .now } label: {
+                Button { openInCalendarApp(selectedDate) } label: {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(selectedDate.formatted(.dateTime.weekday(.wide)).uppercased())
                             .font(.system(size: 10, weight: .bold))
@@ -79,6 +79,7 @@ struct CalendarView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help("Ouvrir dans Calendrier")
                 Spacer(minLength: 6)
                 WeekStrip(selectedDate: $selectedDate)
             }
@@ -120,6 +121,25 @@ struct CalendarView: View {
             }
         }
     }
+}
+
+/// Ouvre Calendrier.app en vue jour sur `date`.
+private func openInCalendarApp(_ date: Date) {
+    let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
+    guard let y = c.year, let m = c.month, let d = c.day else { return }
+    let script = """
+    set d to current date
+    set day of d to 1
+    set year of d to \(y)
+    set month of d to \(m)
+    set day of d to \(d)
+    tell application "Calendar"
+        activate
+        switch view to day view
+        view calendar at d
+    end tell
+    """
+    Task { _ = try? await AppleScriptHelper.execute(script) }
 }
 
 struct EmptyEventsView: View {
