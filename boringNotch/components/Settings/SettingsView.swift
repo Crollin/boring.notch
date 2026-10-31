@@ -692,6 +692,21 @@ struct Media: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                Defaults.Toggle("Contrôle Sonos", key: .enableSonos)
+            } header: {
+                Text("Sonos")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Quand Spotify joue sur une Sonos, le lecteur affiche la pièce et son volume.")
+                    if !Defaults[.hudReplacement] {
+                        Text("Activez le remplacement du HUD pour régler la Sonos avec les touches volume.")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
         .accentColor(.effectiveAccent)
         .navigationTitle("Media")

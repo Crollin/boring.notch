@@ -311,6 +311,7 @@ struct ContentView: View {
                        } else if vm.notchState == .open {
                            BoringHeader()
                                .frame(height: max(24, vm.effectiveClosedNotchHeight))
+                               .padding(.top, 6)  // la pastille d'onglet ne colle pas au bord haut
                                .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
                        } else {
                            Rectangle().fill(.clear).frame(width: vm.closedNotchSize.width - 20, height: vm.effectiveClosedNotchHeight)
@@ -324,6 +325,8 @@ struct ContentView: View {
                                   icon: $coordinator.sneakPeek.icon,
                                   sendEventBack: { newVal in
                                       switch coordinator.sneakPeek.type {
+                                      case .volume where coordinator.sneakPeek.icon == SonosStore.hudIcon:
+                                          Task { await SonosStore.shared.setGroupVolume(Int(newVal * 100)) }
                                       case .volume:
                                           VolumeManager.shared.setAbsolute(Float32(newVal))
                                       case .brightness:
@@ -369,6 +372,10 @@ struct ContentView: View {
                         NotchModules.view(for: id)
                     }
                 }
+                // Un onglet trop haut déborde vers le bas (coupé) au lieu de repousser l'en-tête hors de la notch.
+                // minHeight: 0 sinon le cadre prend la taille du contenu quand il déborde.
+                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+                .clipped()
                 .transition(
                     .scale(scale: 0.8, anchor: .top)
                     .combined(with: .opacity)

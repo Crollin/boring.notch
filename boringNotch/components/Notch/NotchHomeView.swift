@@ -14,13 +14,23 @@ import SwiftUI
 
 struct MusicPlayerView: View {
     @EnvironmentObject var vm: BoringViewModel
+    @ObservedObject private var sonos = SonosStore.shared
     let albumArtNamespace: Namespace.ID
 
     var body: some View {
-        HStack {
-            AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace).padding(.all, 5)
+        HStack(alignment: .center, spacing: 12) {
+            AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace)
+                .frame(width: 110, height: 110)
             MusicControlsView().drawingGroup().compositingGroup()
+            if sonos.isActive {
+                Rectangle().fill(.white.opacity(0.08)).frame(width: 1).padding(.vertical, 6)
+                SonosPanelView()
+                    .frame(width: 180)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
         }
+        .padding(.horizontal, 6)
+        .animation(.smooth(duration: 0.25), value: sonos.isActive)
     }
 }
 
@@ -119,23 +129,18 @@ struct MusicControlsView: View {
     @Default(.musicControlSlots) private var slotConfig
     @Default(.musicControlSlotLimit) private var slotLimit
 
+    // Haut aligné sur la pochette (titre), bas aligné sur la pochette (commandes).
     var body: some View {
-        VStack(alignment: .leading) {
-            songInfoAndSlider
-            slotToolbar
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-
-    private var songInfoAndSlider: some View {
         GeometryReader { geo in
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 songInfo(width: geo.size.width)
                 musicSlider
+                Spacer(minLength: 0)
+                slotToolbar
             }
         }
-        .padding(.top, 10)
-        .padding(.leading, 5)
+        .frame(height: 110)
+        .buttonStyle(PlainButtonStyle())
     }
 
     private func songInfo(width: CGFloat) -> some View {
@@ -205,8 +210,7 @@ struct MusicControlsView: View {
             ) { newValue in
                 MusicManager.shared.seek(to: newValue)
             }
-            .padding(.top, 5)
-            .frame(height: 36)
+            .frame(height: 16)
         }
     }
 
@@ -227,14 +231,7 @@ struct MusicControlsView: View {
             MusicControlButton.maxSlotCount
         )
         let padded = slotConfig.padded(to: sanitizedLimit, filler: .none)
-        let result = Array(padded.prefix(sanitizedLimit))
-        // If calendar and camera are both visible alongside music, hide the edge slots
-        let shouldHideEdges = Defaults[.showCalendar] && Defaults[.showMirror] && webcamManager.cameraAvailable && vm.isCameraExpanded
-        if shouldHideEdges && result.count >= 5 {
-            return Array(result.dropFirst().dropLast())
-        }
-
-        return result
+        return Array(padded.prefix(sanitizedLimit))
     }
 
     @ViewBuilder
@@ -440,18 +437,8 @@ struct NotchHomeView: View {
     }
 
     private var mainContent: some View {
-        HStack(alignment: .top, spacing: (shouldShowCamera && Defaults[.showCalendar]) ? 10 : 15) {
+        HStack(alignment: .top, spacing: 15) {
             MusicPlayerView(albumArtNamespace: albumArtNamespace)
-
-            if Defaults[.showCalendar] {
-                CalendarView()
-                    .frame(width: shouldShowCamera ? 170 : 215)
-                    .onHover { isHovering in
-                        vm.isHoveringCalendar = isHovering
-                    }
-                    .environmentObject(vm)
-                    .transition(.opacity)
-            }
 
             if shouldShowCamera {
                 CameraPreviewView(webcamManager: webcamManager)
@@ -481,7 +468,9 @@ struct MusicSliderView: View {
 
 
     var body: some View {
-        VStack {
+        HStack(spacing: 8) {
+            Text(timeString(from: sliderValue))
+                .frame(minWidth: 32, alignment: .leading)
             CustomSlider(
                 value: $sliderValue,
                 range: 0...duration,
@@ -493,19 +482,16 @@ struct MusicSliderView: View {
                 onValueChange: onValueChange
             )
             .frame(height: 10, alignment: .center)
-
-            HStack {
-                Text(timeString(from: sliderValue))
-                Spacer()
-                Text(timeString(from: duration))
-            }
-            .fontWeight(.medium)
-            .foregroundColor(
-                Defaults[.playerColorTinting]
-                    ? Color(nsColor: color).ensureMinimumBrightness(factor: 0.6) : .gray
-            )
-            .font(.caption)
+            Text("-" + timeString(from: max(0, duration - sliderValue)))
+                .frame(minWidth: 36, alignment: .trailing)
         }
+        .fontWeight(.medium)
+        .monospacedDigit()
+        .foregroundColor(
+            Defaults[.playerColorTinting]
+                ? Color(nsColor: color).ensureMinimumBrightness(factor: 0.6) : .gray
+        )
+        .font(.caption)
         .onChange(of: currentDate) {
            guard !dragging, timestampDate.timeIntervalSince(lastDragged) > -1 else { return }
             sliderValue = MusicManager.shared.estimatedPlaybackPosition(at: currentDate)
