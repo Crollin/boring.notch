@@ -150,6 +150,11 @@ extension Defaults.Keys {
     static let selectedDownloadIndicatorStyle = Key<DownloadIndicatorStyle>("selectedDownloadIndicatorStyle", default: DownloadIndicatorStyle.progress)
     static let selectedDownloadIconStyle = Key<DownloadIconStyle>("selectedDownloadIconStyle", default: DownloadIconStyle.onlyAppIcon)
     
+    // MARK: Sonos
+    static let enableSonos = Key<Bool>("enableSonos", default: true)
+    static let sonosFavorites = Key<[SonosFavorite]>("sonosFavorites", default: [])
+    static let sonosLastGroup = Key<[String]?>("sonosLastGroup", default: nil)
+
     // MARK: HUD
     static let hudReplacement = Key<Bool>("hudReplacement", default: false)
     static let inlineHUD = Key<Bool>("inlineHUD", default: false)

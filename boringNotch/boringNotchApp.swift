@@ -281,6 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NotchModules.startAll()
+        SonosStore.shared.start()
 
         NotificationCenter.default.addObserver(
             self,
