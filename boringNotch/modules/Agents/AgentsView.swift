@@ -125,6 +125,9 @@ struct AgentsView: View {
             }
         }
         .padding(.horizontal, 6)
+        // Hauteur du notch ouvert fixe (190) : on ne déborde jamais, sinon la mise en page remonte hors de l'écran.
+        .frame(maxHeight: .infinity, alignment: .top)
+        .clipped()
     }
 
     // MARK: En-tête
@@ -208,7 +211,7 @@ struct AgentsView: View {
                     Image(systemName: agentIcon(s.source)).font(.system(size: 12)).foregroundStyle(s.tint)
                 }
             }
-            .frame(width: 34, height: 34)
+            .frame(width: 30, height: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text(s.title ?? s.project)
                     .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
@@ -229,7 +232,7 @@ struct AgentsView: View {
                 Text(s.isActive ? s.state.label : "En attente d'un prompt")
                     .font(.system(size: 12)).foregroundStyle(secondary)
             }
-            let steps = Array(s.steps.suffix(4))
+            let steps = Array(s.steps.suffix(3))
             ForEach(Array(steps.enumerated()), id: \.element.id) { i, step in
                 HStack(spacing: 9) {
                     ZStack {
@@ -241,7 +244,7 @@ struct AgentsView: View {
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(step.done ? secondary : s.tint)
                     }
-                    .frame(width: 14, height: 22)
+                    .frame(width: 14, height: 20)
                     Text(step.label).font(.system(size: 11.5))
                         .foregroundStyle(.white.opacity(step.done ? 0.65 : 1)).lineLimit(1)
                     Spacer(minLength: 6)
