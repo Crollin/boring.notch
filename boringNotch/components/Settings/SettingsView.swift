@@ -699,9 +699,9 @@ struct Media: View {
                 Text("Sonos")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Quand Spotify joue sur une Sonos, le lecteur affiche la pièce et son volume.")
+                    Text("Quand Spotify joue sur une Sonos, le lecteur affiche la pièce et son volume. Les touches volume règlent le Mac ; ⌃ + touches volume règlent la Sonos.")
                     if !Defaults[.hudReplacement] {
-                        Text("Activez le remplacement du HUD pour régler la Sonos avec les touches volume.")
+                        Text("Activez le remplacement du HUD pour régler la Sonos avec ⌃ + touches volume.")
                     }
                 }
                 .font(.caption)

@@ -50,7 +50,7 @@ La notch devient l'endroit pour : régler le volume de la Sonos qui joue, change
 
 ### Touches volume du Mac
 
-Quand Spotify joue sur une Sonos : les touches volume (et mute) règlent la Sonos, et l'indicateur volume de la notch (sneak peek) l'affiche avec le nom de la pièce. Sinon : comportement actuel inchangé (volume du Mac).
+Quand Spotify joue sur une Sonos : ⌃ + touches volume (et mute) règlent la Sonos, et l'indicateur volume de la notch (sneak peek) l'affiche avec le nom de la pièce. Les touches seules règlent toujours le Mac. *(Révisé le 2026-11-01 : router par défaut vers la Sonos captait les touches même Sonos en pause.)*
 
 ### Technique
 

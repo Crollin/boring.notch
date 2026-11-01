@@ -54,7 +54,7 @@ final class SonosStore: ObservableObject {
 
     private var generation = 0   // incrémenté par chaque action de groupe : invalide un refresh en vol
     private var misses = 0
-    // ponytail: 2 ratés (~6 s) avant de rendre les touches au Mac ; évite le clignotement aux changements de morceau.
+    // ponytail: 2 ratés (~6 s) avant de masquer la Sonos ; évite le clignotement aux changements de morceau.
     private let missesBeforeInactive = 2
 
     func refresh() async {
