@@ -39,6 +39,8 @@ struct DynamicNotchApp: App {
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
             CheckForUpdatesView(updater: updaterController.updater)
             Divider()
+            StayAwakeMenu()
+            Divider()
             Button("Restart Boring Notch") {
                 ApplicationRelauncher.restart()
             }
@@ -283,6 +285,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NotchModules.startAll()
         SonosStore.shared.start()
+        PrivacyMonitor.shared.start()
+        DownloadMonitor.shared.start()
+        ActivityEvents.shared.start()
 
         NotificationCenter.default.addObserver(
             self,
@@ -366,6 +371,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     duration: 3.0
                 )
             }
+        }
+
+        KeyboardShortcuts.onKeyDown(for: .toggleStayAwake) {
+            Task { @MainActor in StayAwake.shared.toggle() }
         }
 
         KeyboardShortcuts.onKeyDown(for: .toggleNotchOpen) { [weak self] in

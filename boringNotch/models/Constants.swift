@@ -155,6 +155,16 @@ extension Defaults.Keys {
     static let sonosFavorites = Key<[SonosFavorite]>("sonosFavorites", default: [])
     static let sonosLastGroup = Key<[String]?>("sonosLastGroup", default: nil)
 
+    // MARK: Activités autour de la notch
+    static let activityAgents = Key<Bool>("activityAgents", default: true)
+    static let activityPrivacy = Key<Bool>("activityPrivacy", default: true)
+    static let activityDownloads = Key<Bool>("activityDownloads", default: true)
+    static let downloadsToShelf = Key<Bool>("downloadsToShelf", default: true)
+    static let activityStayAwake = Key<Bool>("activityStayAwake", default: true)
+    static let activityCommands = Key<Bool>("activityCommands", default: true)
+    static let activityDisks = Key<Bool>("activityDisks", default: true)
+    static let activityHeadsets = Key<Bool>("activityHeadsets", default: true)
+
     // MARK: HUD
     static let hudReplacement = Key<Bool>("hudReplacement", default: false)
     static let inlineHUD = Key<Bool>("inlineHUD", default: false)
