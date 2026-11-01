@@ -218,6 +218,9 @@ struct ContentView: View {
                     Color.clear.frame(maxWidth: .infinity)
                 }
                 .frame(height: vm.effectiveClosedNotchHeight)
+                // La bulle est calée sur le notch fermé : à l'ouverture elle doit disparaître tout de suite,
+                // sinon le fondu (ressort de l'ouverture) la laisse traîner par-dessus la barre d'onglets.
+                .transition(.asymmetric(insertion: .opacity, removal: .identity))
             }
         }
         .compositingGroup()
@@ -231,6 +234,7 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .environmentObject(vm)
         .onChange(of: vm.anyDropZoneTargeting) { _, isTargeted in
+            ConvertStore.shared.dragChanged(isTargeted)
             anyDropDebounceTask?.cancel()
 
             if isTargeted {
