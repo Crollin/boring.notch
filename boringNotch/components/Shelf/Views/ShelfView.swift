@@ -13,6 +13,7 @@ struct ShelfView: View {
     @StateObject var tvm = ShelfStateViewModel.shared
     @StateObject var selection = ShelfSelectionModel.shared
     @StateObject private var quickLookService = QuickLookService()
+    @ObservedObject private var convert = ConvertStore.shared
     private let spacing: CGFloat = 8
 
     var body: some View {
@@ -20,11 +21,17 @@ struct ShelfView: View {
             FileShareView()
                 .aspectRatio(1, contentMode: .fit)
                 .environmentObject(vm)
+            if convert.showDropTile {
+                ConvertDropZone()
+                    .aspectRatio(1, contentMode: .fit)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+            }
             panel
                 .onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data], isTargeted: $vm.dragDetectorTargeting) { providers in
                     handleDrop(providers: providers)
                 }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: convert.showDropTile)
         // Bind Quick Look to shelf selection
         .onChange(of: selection.selectedIDs) {
             updateQuickLookSelection()
@@ -79,7 +86,9 @@ struct ShelfView: View {
 
     var content: some View {
         Group {
-            if tvm.isEmpty {
+            if let file = convert.file {
+                ConvertPanel(file: file)
+            } else if tvm.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "tray.and.arrow.down")
                         .symbolVariant(.fill)
