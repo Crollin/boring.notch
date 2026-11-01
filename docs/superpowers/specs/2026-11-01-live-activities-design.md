@@ -58,7 +58,7 @@ protocol NotchActivity {           // une source = un ObservableObject singleton
   à droite. Le clic est porté par la pastille elle-même (chaque source sait quoi faire).
 - Priorités fixes : micro/caméra 100 · agents 80 (attention 95) · téléchargement 60 · éphémères (commande, disque,
   casque) 50 · rester éveillé 20.
-- Les activités éphémères s'effacent seules après leur durée ; une nouvelle du même type remplace l'ancienne.
+- Les activités éphémères s'effacent seules après leur durée ; une seule à la fois, la plus récente remplace la précédente.
 - Réglages : une section « Activités » avec un interrupteur par activité (toutes actives par défaut, agents inclus)
   et l'option « Ajouter les téléchargements à l'étagère » (activée).
 

@@ -205,19 +205,13 @@ struct ContentView: View {
         }
         .padding(.bottom, 8)
         .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
-        // Island agents : à gauche du notch fermé (largeur réelle, activité Spotify comprise), à sa hauteur.
+        // Activités (agents, micro, téléchargements…) de part et d'autre du notch fermé (largeur réelle, activité Spotify comprise).
         .overlay(alignment: .top) {
             if vm.notchState == .closed {
-                HStack(spacing: 0) {
-                    HStack { Spacer(minLength: 0); AgentsPill(height: vm.effectiveClosedNotchHeight) {
-                        coordinator.currentView = .module("agents")
-                        doOpen()
-                    } }
-                        .frame(maxWidth: .infinity)
-                        .padding(.trailing, computedChinWidth / 2 + 6)
-                    Color.clear.frame(maxWidth: .infinity)
+                ActivitySlots(height: vm.effectiveClosedNotchHeight, notchWidth: computedChinWidth) {
+                    coordinator.currentView = .module("agents")
+                    doOpen()
                 }
-                .frame(height: vm.effectiveClosedNotchHeight)
                 // La bulle est calée sur le notch fermé : à l'ouverture elle doit disparaître tout de suite,
                 // sinon le fondu (ressort de l'ouverture) la laisse traîner par-dessus la barre d'onglets.
                 .transition(.asymmetric(insertion: .opacity, removal: .identity))

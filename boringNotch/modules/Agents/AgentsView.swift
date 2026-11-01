@@ -530,26 +530,21 @@ private struct PixelMascot: View {
     }
 }
 
-/// Bulle à gauche du notch fermé.
-/// Visible tant qu'une conversation est ouverte ; priorité : validation > travail > repos.
-struct AgentsPill: View {
-    var height: CGFloat = 32
-    var onTap: () -> Void = {}
-    @ObservedObject private var store = AgentStore.shared
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            let open = store.sessions.contains { ctx.date.timeIntervalSince($0.updatedAt) < 4 * 3600 }
-            let kind: AgentBubble.Kind? = store.needsAttention ? .attention
-                : store.activeCount > 0 ? .working : store.needsReply ? .reply : open ? .idle : nil
-            if let kind {
-                Button(action: onTap) {
-                    AgentBubble(kind: kind, badge: store.needsReply, height: height).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
-                .help("Ouvrir l'onglet Agents")
+/// Bulle des agents parmi les activités de la notch fermée.
+/// Visible tant qu'une conversation est ouverte ; priorité : validation > travail > réponse attendue > repos.
+extension AgentStore {
+    func activity(now: Date, height: CGFloat, onTap: @escaping () -> Void) -> Activity? {
+        let open = sessions.contains { now.timeIntervalSince($0.updatedAt) < 4 * 3600 }
+        let kind: AgentBubble.Kind? = needsAttention ? .attention
+            : activeCount > 0 ? .working : needsReply ? .reply : open ? .idle : nil
+        guard let kind else { return nil }
+        let priority = [.attention: 95, .working: 80, .reply: 70][kind] ?? 30
+        return Activity(id: "agents", priority: priority, view: AnyView(
+            Button(action: onTap) {
+                AgentBubble(kind: kind, badge: needsReply, height: height).contentShape(Rectangle())
             }
-        }
+            .buttonStyle(.plain)
+            .help("Ouvrir l'onglet Agents")
+        ))
     }
 }
