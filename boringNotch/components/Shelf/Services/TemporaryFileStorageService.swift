@@ -63,7 +63,9 @@ class TemporaryFileStorageService {
         
         switch type {
         case .data(let data, let suggestedName):
-            let filename = suggestedName ?? ".dat"
+            // suggestedName vient de l'app source du drag (non fiable) : on ne garde que le dernier composant.
+            let safeName = suggestedName.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
+            let filename = ["", ".", "..", "/"].contains(safeName) ? ".dat" : safeName
             let dirURL = tempDir.appendingPathComponent(uuid, isDirectory: true)
             let fileURL = dirURL.appendingPathComponent(filename)
             
@@ -165,7 +167,7 @@ class TemporaryFileStorageService {
                 let archiveURL = workingDir.appendingPathComponent(archiveName)
                 // Run zip from the parent directory so the folder is stored as top-level entry
                 let parent = src.deletingLastPathComponent()
-                let args = ["-r", "-q", archiveURL.path, baseName]
+                let args = ["-r", "-q", archiveURL.path, "--", baseName]
                 let ok = runZip(arguments: args, currentDirectory: parent)
                 if ok {
                     return archiveURL
@@ -178,7 +180,7 @@ class TemporaryFileStorageService {
                 let archiveURL = workingDir.appendingPathComponent(archiveName)
                 let parent = src.deletingLastPathComponent()
                 // -j to junk paths and store only the file
-                let args = ["-j", "-q", archiveURL.path, baseName]
+                let args = ["-j", "-q", archiveURL.path, "--", baseName]
                 let ok = runZip(arguments: args, currentDirectory: parent)
                 if ok {
                     return archiveURL
