@@ -13,9 +13,6 @@ struct SonosPanelView: View {
     @ObservedObject var store = SonosStore.shared
     @Default(.sonosFavorites) private var favorites
     @Default(.sonosLastGroup) private var lastGroup
-    @State private var naming = false
-    @State private var newName = ""
-    @FocusState private var nameFocused: Bool
 
     private var members: [String] { store.activeGroup?.memberIDs ?? [] }
 
@@ -126,22 +123,11 @@ struct SonosPanelView: View {
                         Button("Supprimer", role: .destructive) { store.deleteFavorite(fav.id) }
                     }
                 }
-                if naming {
-                    TextField("Nom", text: $newName)
-                        .textFieldStyle(.plain).font(.system(size: 10.5))
-                        .focused($nameFocused)
-                        .onSubmit(saveFavorite)
-                        .onExitCommand { naming = false }
-                        .frame(width: 80)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Capsule().strokeBorder(Color.effectiveAccent.opacity(0.6)))
-                } else if !favorites.contains(where: { Set($0.roomIDs) == Set(members) }) {
-                    chip(icon: "plus", title: favorites.isEmpty ? "Favori" : nil) {
-                        newName = store.label
-                        naming = true
-                        nameFocused = true
-                    }
-                    .help("Enregistrer ce groupe en favori")
+                // La fenêtre du notch ne prend jamais le clavier (canBecomeKey = false) : pas de champ de saisie,
+                // le favori prend le nom des pièces du groupe.
+                if !favorites.contains(where: { Set($0.roomIDs) == Set(members) }) {
+                    chip(icon: "plus", title: favorites.isEmpty ? "Favori" : nil) { store.saveFavorite(name: store.label) }
+                        .help("Enregistrer ce groupe en favori")
                 }
             }
         }
@@ -159,11 +145,6 @@ struct SonosPanelView: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-    }
-
-    private func saveFavorite() {
-        store.saveFavorite(name: newName)
-        naming = false
     }
 }
 

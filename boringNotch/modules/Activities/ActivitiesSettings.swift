@@ -14,6 +14,7 @@ struct ActivitiesSettings: View {
     @Default(.activityEventSeconds) private var eventSeconds
     @Default(.commandMinSeconds) private var commandMin
     @Default(.stayAwakeShortcutMinutes) private var shortcutMinutes
+    @Default(.timerShortcutMinutes) private var timerMinutes
     @Default(.activityDownloads) private var downloads
     @Default(.activityCommands) private var commands
 
@@ -30,7 +31,7 @@ struct ActivitiesSettings: View {
             } header: {
                 Text("Général")
             } footer: {
-                note("Les plus importantes d'abord : micro et caméra, agents, téléchargements, notifications, rester éveillé. La durée s'applique aux commandes, disques, casques et téléchargements terminés.")
+                note("Les plus importantes d'abord : micro et caméra, agents, téléchargements, notifications, minuteur, rester éveillé. La durée s'applique aux commandes, disques, casques et téléchargements terminés.")
             }
 
             Section {
@@ -103,6 +104,17 @@ struct ActivitiesSettings: View {
                 Text("Rester éveillé")
             } footer: {
                 note("Aussi depuis le menu de l'icône de la barre des menus. Un clic sur la pastille arrête. Le réglage de l'écran s'applique à la prochaine activation.")
+            }
+
+            Section {
+                KeyboardShortcuts.Recorder("Raccourci lancer / arrêter :", name: .toggleTimer)
+                Picker("Durée avec le raccourci", selection: $timerMinutes) {
+                    ForEach(NotchTimer.presets, id: \.self) { Text("\($0) min").tag($0) }
+                }
+            } header: {
+                Text("Minuteur")
+            } footer: {
+                note("Aussi depuis le menu de l'icône de la barre des menus. Un clic sur la pastille arrête ; à la fin, un son et une pastille « Terminé » pendant une minute.")
             }
         }
         .formStyle(.grouped)
