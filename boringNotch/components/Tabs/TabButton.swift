@@ -16,7 +16,7 @@ struct TabButton: View {
     var body: some View {
         Button(action: onClick) {
             Image(systemName: icon)
-                .padding(.horizontal, 15)
+                .padding(.horizontal, 10) // 5 onglets doivent tenir à gauche de l’encoche
                 .contentShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
