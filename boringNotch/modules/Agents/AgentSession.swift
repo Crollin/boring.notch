@@ -36,6 +36,8 @@ struct AgentSession: Identifiable, Equatable {
     var title: String?          // premier prompt de la session
     var app: String?            // bundle id du terminal / IDE, pour rouvrir la conversation
     var pending: String?        // action en attente de validation
+    var questions: [AgentQuestion]?   // AskUserQuestion en attente de réponse
+    var plan: String?                 // ExitPlanMode : plan (Markdown) en attente d'approbation
     var awaitsReply = false     // le dernier message de l'agent appelle une réponse de l'utilisateur
     var state: AgentState = .thinking
     var file: String?
@@ -47,6 +49,18 @@ struct AgentSession: Identifiable, Equatable {
     var project: String { cwd.map { ($0 as NSString).lastPathComponent } ?? "?" }
     /// Sans événement depuis 5 min (interruption par Échap, terminal fermé : aucun hook Stop), la session est considérée inactive.
     var isActive: Bool { state != .done && Date().timeIntervalSince(updatedAt) < 300 }
+}
+
+/// Une question d'AskUserQuestion (1 à 4 par appel), telle que Claude Code l'envoie au hook.
+struct AgentQuestion: Decodable, Equatable {
+    struct Option: Decodable, Equatable {
+        var label: String
+        var description: String?
+    }
+    var question: String
+    var header: String?
+    var options: [Option]
+    var multiSelect: Bool?
 }
 
 struct RateLimit: Equatable, Codable {
@@ -72,7 +86,6 @@ struct AgentEnvelope: Decodable {
         var hook_event_name: String?
         var cwd: String?
         var prompt: String?
-        var last_message: String?
         var last_assistant_message: String?
         var tool_name: String?
         var tool_use_id: String?
@@ -92,6 +105,8 @@ struct AgentEnvelope: Decodable {
         var new_string: String?
         var content: String?
         var edits: [Edit]?
+        var questions: [AgentQuestion]?   // AskUserQuestion
+        var plan: String?                 // ExitPlanMode
     }
     struct Edit: Decodable {
         var old_string: String?
