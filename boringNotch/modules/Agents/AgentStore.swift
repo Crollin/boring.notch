@@ -78,13 +78,23 @@ final class AgentStore: ObservableObject {
     /// Réponses en attente d'une décision, par session (hook PermissionRequest bloquant).
     private var responders: [String: (String?) -> Void] = [:]
 
-    /// Autoriser / refuser depuis le notch : renvoie la décision au hook, qui la transmet à l'agent.
+    /// Autoriser / refuser (ou approuver le plan) depuis le notch : renvoie la décision au hook,
+    /// qui l'emballe pour l'agent (scripts/agent-permission.sh).
     func decide(_ sid: String, allow: Bool) {
-        guard let r = responders.removeValue(forKey: sid) else { return }
-        let decision = allow ? "{\"behavior\":\"allow\"}" : "{\"behavior\":\"deny\",\"message\":\"Refusé depuis Boring Notch\"}"
-        r("{\"hookSpecificOutput\":{\"hookEventName\":\"PermissionRequest\",\"decision\":\(decision)}}")
+        respond(sid, allow ? ["behavior": "allow"] : ["behavior": "deny", "message": "Refusé depuis Boring Notch"])
+    }
+
+    /// Réponses à AskUserQuestion : texte de la question -> libellé(s) choisi(s), séparés par des virgules.
+    func answer(_ sid: String, _ answers: [String: String]) {
+        respond(sid, ["behavior": "allow", "answers": answers])
+    }
+
+    private func respond(_ sid: String, _ decision: [String: Any]) {
+        guard let r = responders.removeValue(forKey: sid),
+              let json = try? JSONSerialization.data(withJSONObject: decision) else { return }
+        r(String(decoding: json, as: UTF8.self))
         guard var s = sessions.first(where: { $0.id == sid }) else { return }
-        s.pending = nil; s.state = .thinking
+        s.pending = nil; s.questions = nil; s.plan = nil; s.state = .thinking
         upsert(s)
     }
 
@@ -101,7 +111,7 @@ final class AgentStore: ObservableObject {
         if env.kind == "statusline" { upsert(s); return }
         if let f = p.tool_input?.file_path { s.file = f }
         let wasWaiting = s.state == .waiting
-        s.pending = nil
+        s.pending = nil; s.questions = nil; s.plan = nil
         s.awaitsReply = false
         // Une autre activité de la session = la validation a été traitée ailleurs (terminal) : on libère le hook.
         if p.hook_event_name != "PermissionRequest" { responders.removeValue(forKey: sid)?(nil) }
@@ -120,10 +130,13 @@ final class AgentStore: ObservableObject {
             s.state = .waiting
             if let reply { responders.removeValue(forKey: sid)?(nil); responders[sid] = reply }
             s.pending = Self.label(p.tool_name ?? "…", p.tool_input)
+            // Sans hook bloquant (reply nil), le notch ne peut pas répondre : simple validation à faire au terminal.
+            if reply != nil, p.tool_name == "AskUserQuestion" { s.questions = p.tool_input?.questions }
+            if reply != nil, p.tool_name == "ExitPlanMode" { s.plan = p.tool_input?.plan }
             if !wasWaiting { NSSound(named: "Glass")?.play() }
         case "Stop":
             s.state = .done
-            s.awaitsReply = Self.asksForReply(p.last_message ?? p.last_assistant_message)
+            s.awaitsReply = Self.asksForReply(p.last_assistant_message)
             lastFinished = .now
             for i in s.steps.indices where !s.steps[i].done { s.steps[i].duration = Date().timeIntervalSince(s.steps[i].started) }
         case "SessionEnd":
@@ -133,16 +146,18 @@ final class AgentStore: ObservableObject {
         default: break
         }
         s.updatedAt = .now
-        upsert(s)
+        // Pre/PostToolUse arrivent par centaines et ne changent rien de ce qui est sauvegardé : pas d'écriture disque.
+        upsert(s, persist: !["PreToolUse", "PostToolUse"].contains(p.hook_event_name))
     }
 
     /// Met la session en tête de liste (ou la crée) sans toucher à son état.
-    private func upsert(_ s: AgentSession) {
+    private func upsert(_ s: AgentSession, persist: Bool = true) {
         var s = s
-        if sessions.first(where: { $0.id == s.id }) != nil, s.state == .done { s.updatedAt = .now }
+        let known = sessions.contains { $0.id == s.id }
+        if known, s.state == .done { s.updatedAt = .now }
         sessions.removeAll { $0.id == s.id }
         sessions.insert(s, at: 0)
-        save()
+        if persist || !known { save() }
     }
 
     // MARK: Étapes

@@ -76,7 +76,7 @@ extension AgentSession {
     var tint: Color { state == .waiting ? .red : isActive ? .orange : awaitsReply ? .blue : .green }
     var stateText: String {
         switch state {
-        case .waiting: "Validation requise"
+        case .waiting: questions != nil ? "Question pour vous" : plan != nil ? "Plan à valider" : "Validation requise"
         case .thinking where isActive: "Réfléchit…"
         case .running where isActive: "Au travail"
         default: awaitsReply ? "Attend votre réponse" : "Au repos"
@@ -175,7 +175,17 @@ struct AgentsView: View {
     // MARK: Progression
 
     @ViewBuilder private var progress: some View {
-        if let s = session {
+        if let s = session, s.state == .waiting, s.questions != nil || s.plan != nil {
+            // Question ou plan : toute la largeur, la liste d'étapes n'a pas d'intérêt pendant l'attente.
+            VStack(alignment: .leading, spacing: 8) {
+                agentHeader(s)
+                if let qs = s.questions, !qs.isEmpty {
+                    QuestionCard(session: s, questions: qs).id(s.id + qs.map(\.question).joined())
+                } else if let plan = s.plan {
+                    PlanCard(session: s, plan: plan)
+                }
+            }
+        } else if let s = session {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
                     agentHeader(s)
@@ -342,6 +352,110 @@ private struct ActivityCard: View {
         if waiting { return session.pending }
         guard let step, step.file == nil else { return nil }
         return step.label
+    }
+}
+
+// MARK: - Question (AskUserQuestion) et plan (ExitPlanMode)
+
+/// Bouton capsule « verre » commun aux cartes de question et de plan.
+private func pillButton(_ label: String, tint: Color?, _ action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+        Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .glass(Capsule(), tint: tint, interactive: true)
+    }
+    .buttonStyle(.plain)
+}
+
+/// Questions une par une ; un clic sur une option répond (choix unique) ou la coche (choix multiple).
+/// Pas de champ libre (le notch ne prend pas le clavier) : « Autre… » ramène au terminal, où la question est aussi posée.
+private struct QuestionCard: View {
+    let session: AgentSession
+    let questions: [AgentQuestion]
+    @State private var index = 0
+    @State private var answers: [String: String] = [:]
+    @State private var checked: Set<String> = []
+
+    private var q: AgentQuestion { questions[min(index, questions.count - 1)] }
+    private var multi: Bool { q.multiSelect == true }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                if let h = q.header {
+                    Text(h.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(.blue)
+                }
+                Text(q.question).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).lineLimit(2)
+                Spacer(minLength: 4)
+                if questions.count > 1 {
+                    Text("\(index + 1)/\(questions.count)").font(.system(size: 10, weight: .medium).monospacedDigit()).foregroundStyle(secondary)
+                }
+                if multi { pillButton("Valider", tint: .blue) { record(checked.sorted().joined(separator: ", ")) }.disabled(checked.isEmpty) }
+                pillButton("Autre…", tint: nil) { AgentStore.shared.openTerminal(session) }
+            }
+            HStack(alignment: .top, spacing: 6) {
+                ForEach(q.options, id: \.label) { option($0) }
+            }
+        }
+        .padding(10)
+        .glass(RoundedRectangle(cornerRadius: 16, style: .continuous), tint: .blue)
+    }
+
+    private func option(_ o: AgentQuestion.Option) -> some View {
+        let on = checked.contains(o.label)
+        return Button {
+            if multi { if on { checked.remove(o.label) } else { checked.insert(o.label) } } else { record(o.label) }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    if multi { Image(systemName: on ? "checkmark.circle.fill" : "circle").font(.system(size: 9)) }
+                    Text(o.label).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+                }
+                if let d = o.description {
+                    Text(d).font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.55)).lineLimit(2)
+                }
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 9).padding(.vertical, 6)
+            .glass(RoundedRectangle(cornerRadius: 10, style: .continuous), tint: on ? .blue : nil, interactive: true)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(o.description ?? o.label)
+    }
+
+    private func record(_ value: String) {
+        answers[q.question] = value
+        checked = []
+        if index + 1 < questions.count { index += 1 } else { AgentStore.shared.answer(session.id, answers) }
+    }
+}
+
+/// Plan Markdown défilant à gauche, décision à droite. Retoucher le plan = au terminal (saisie clavier).
+private struct PlanCard: View {
+    let session: AgentSession
+    let plan: String
+
+    private var text: AttributedString {
+        (try? AttributedString(markdown: plan, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(plan)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ScrollView {
+                Text(text).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.85))
+                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity)
+            VStack(alignment: .trailing, spacing: 6) {
+                Spacer(minLength: 0)
+                pillButton("Retoucher…", tint: nil) { AgentStore.shared.openTerminal(session) }
+                pillButton("Approuver", tint: .green) { AgentStore.shared.decide(session.id, allow: true) }
+            }
+        }
+        .padding(10)
+        .glass(RoundedRectangle(cornerRadius: 16, style: .continuous), tint: .purple)
     }
 }
 
