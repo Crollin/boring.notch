@@ -15,8 +15,9 @@ struct TabButton: View {
     
     var body: some View {
         Button(action: onClick) {
+            // Largeur souple : les onglets se resserrent pour tenir tous à gauche de l'encoche physique.
             Image(systemName: icon)
-                .padding(.horizontal, 10) // 5 onglets doivent tenir à gauche de l’encoche
+                .frame(minWidth: 22, idealWidth: 38, maxWidth: 38)
                 .contentShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
