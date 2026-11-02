@@ -403,18 +403,38 @@ struct DictationPill: View {
     }
 }
 
-/// « boring => Boring ✓ ✗ » : valide ou ignore la règle apprise sans ouvrir les réglages.
+/// Règle apprise, sur deux lignes (avant / après) avec une pastille verte (valider) et une rouge (ignorer).
 @available(macOS 26.0, *)
 struct DictationOffer: View {
     let height: CGFloat
     let rule: String
+    private var parts: (String, String) {
+        let p = rule.components(separatedBy: " => ")
+        return (p.first ?? rule, p.count > 1 ? p[1] : "")
+    }
     var body: some View {
-        ActivityPill(height: height, help: "Règle apprise : l'ajouter aux substitutions ?") {
-            Text(rule.replacingOccurrences(of: " => ", with: " → ")).lineLimit(1).frame(maxWidth: 150)
-            Button { Dictation.shared.answerOffer(accept: true) } label: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
-                .buttonStyle(.plain)
-            Button { Dictation.shared.answerOffer(accept: false) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                .buttonStyle(.plain)
+        let h = max(height - 8, 24)
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(parts.0).font(.system(size: 8.5, weight: .medium)).foregroundStyle(.white.opacity(0.55)).strikethrough()
+                Text(parts.1).font(.system(size: 9.5, weight: .bold)).foregroundStyle(.white)
+            }
+            .lineLimit(1).truncationMode(.middle).frame(maxWidth: 120, alignment: .leading)
+            tile("checkmark", .green, accept: true)
+            tile("xmark", .red, accept: false)
         }
+        .padding(.leading, 9).padding(.trailing, 3)
+        .frame(height: h)
+        .background(Capsule().fill(.black))
+        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+        .help("Règle apprise : l'ajouter aux substitutions ?")
+    }
+
+    private func tile(_ icon: String, _ color: Color, accept: Bool) -> some View {
+        Button { Dictation.shared.answerOffer(accept: accept) } label: {
+            Image(systemName: icon).font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                .frame(width: 19, height: 19).background(Circle().fill(color))
+        }
+        .buttonStyle(.plain)
     }
 }

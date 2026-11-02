@@ -115,8 +115,12 @@ enum TextCleanup {
         let model = SystemLanguageModel(useCase: .general, guardrails: .permissiveContentTransformations)
         guard case .available = model.availability else { return nil }
         let session = LanguageModelSession(model: model, instructions: """
-            Tu transformes un texte selon une consigne dictée à la voix. Applique la consigne au texte, garde sa langue \
-            sauf demande contraire, ne commente rien, n'ajoute rien. Renvoie uniquement le texte transformé.
+            Tu transformes un texte selon une consigne dictée à la voix (reformuler, raccourcir, traduire, changer le ton…). \
+            Règles : conserve le sens exact et toutes les informations importantes (faits, noms, chiffres, dates, demandes, \
+            engagements) ; ne coupe jamais une phrase ni un mot en plein milieu, termine toujours par une phrase complète ; \
+            n'invente rien ; garde la langue du texte sauf demande contraire, ainsi que le tutoiement ou vouvoiement, \
+            les formules d'adresse et les sauts de ligne. « Raccourcir » = dire la même chose avec moins de mots, pas \
+            supprimer des informations. Ne commente pas. Renvoie uniquement le texte transformé.
             """)
         var options = GenerationOptions()
         options.temperature = 0.2
