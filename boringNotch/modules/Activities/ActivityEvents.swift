@@ -2,7 +2,8 @@
 //  ActivityEvents.swift
 //  boringNotch
 //
-//  Activités éphémères (quelques secondes) : commande terminal terminée, disque externe monté, casque Bluetooth connecté.
+//  Activités éphémères (quelques secondes) : commande terminal terminée, disque externe monté.
+//  Casque Bluetooth connecté : la notch fermée s'élargit (HeadsetConnectedView), comme pour la charge.
 //  Une seule à la fois : la plus récente remplace la précédente.
 //
 
@@ -18,12 +19,14 @@ final class ActivityEvents: ObservableObject {
     enum Event: Equatable {
         case command(name: String, ok: Bool, duration: TimeInterval, app: String?)
         case disk(name: String, url: URL)
-        case headset(name: String, device: AudioObjectID)
     }
 
     @Published private(set) var event: Event?
+    /// Dernier casque connecté ou déconnecté, affiché pendant l'élargissement de la notch.
+    @Published private(set) var headset: (name: String, device: AudioObjectID, connected: Bool)?
     private var expires = Date.distantPast
-    private var knownHeadsets: Set<AudioObjectID> = []
+    /// Casques présents et leur nom : à la déconnexion, CoreAudio ne connaît déjà plus le périphérique.
+    private var knownHeadsets: [AudioObjectID: String] = [:]
 
     private func show(_ e: Event) {
         event = e
@@ -73,17 +76,26 @@ final class ActivityEvents: ObservableObject {
     }
 
     /// Sorties audio Bluetooth (un casque expose une entrée et une sortie : on ne garde que la sortie).
-    private static var headsets: Set<AudioObjectID> {
-        Set(AudioHardware.devices.filter { AudioHardware.isBluetooth($0) && AudioHardware.hasStreams($0, input: false) })
+    private static var headsets: [AudioObjectID: String] {
+        Dictionary(uniqueKeysWithValues: AudioHardware.devices
+            .filter { AudioHardware.isBluetooth($0) && AudioHardware.hasStreams($0, input: false) }
+            .map { ($0, AudioHardware.string($0, kAudioObjectPropertyName) ?? "Casque") })
     }
 
     private func devicesChanged() {
         let now = Self.headsets
-        let added = now.subtracting(knownHeadsets)
+        let added = now.keys.first { knownHeadsets[$0] == nil }
+        let removed = knownHeadsets.first { now[$0.key] == nil }
         knownHeadsets = now
-        if case .headset(_, let d)? = event, !now.contains(d) { event = nil }
-        guard Defaults[.activityHeadsets], let dev = added.first else { return }
-        show(.headset(name: AudioHardware.string(dev, kAudioObjectPropertyName) ?? "Casque", device: dev))
+        guard Defaults[.activityHeadsets] else { return }
+        // value : 1 connecté, 0 déconnecté (élargissement plus court, cf. BoringViewCoordinator).
+        if let dev = added {
+            headset = (now[dev] ?? "Casque", dev, true)
+            BoringViewCoordinator.shared.toggleExpandingView(status: true, type: .headset, value: 1)
+        } else if let (dev, name) = removed {
+            headset = (name, dev, false)
+            BoringViewCoordinator.shared.toggleExpandingView(status: true, type: .headset, value: 0)
+        }
     }
 
     // MARK: Pastille
@@ -106,13 +118,6 @@ final class ActivityEvents: ObservableObject {
                     Image(systemName: "externaldrive.fill").foregroundStyle(.blue)
                     Text(name).lineLimit(1).frame(maxWidth: 80)
                     Image(systemName: "eject.fill").foregroundStyle(.secondary)
-                }
-            ))
-        case let .headset(name, device):
-            return Activity(id: "event-headset", priority: 50, view: AnyView(
-                ActivityPill(height: height, help: "Utiliser comme sortie audio", action: { AudioHardware.setDefaultOutput(device) }) {
-                    Image(systemName: "headphones").foregroundStyle(.blue)
-                    Text(name).lineLimit(1).frame(maxWidth: 90)
                 }
             ))
         }

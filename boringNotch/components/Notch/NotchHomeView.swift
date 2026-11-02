@@ -14,7 +14,6 @@ import SwiftUI
 
 struct MusicPlayerView: View {
     @EnvironmentObject var vm: BoringViewModel
-    @ObservedObject private var sonos = SonosStore.shared
     let albumArtNamespace: Namespace.ID
 
     var body: some View {
@@ -22,15 +21,10 @@ struct MusicPlayerView: View {
             AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace)
                 .frame(width: 110, height: 110)
             MusicControlsView().drawingGroup().compositingGroup()
-            if sonos.isActive {
-                Rectangle().fill(.white.opacity(0.08)).frame(width: 1).padding(.vertical, 6)
-                SonosPanelView()
-                    .frame(width: 180)
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
-            }
+            Rectangle().fill(.white.opacity(0.08)).frame(width: 1).padding(.vertical, 6)
+            UpNextPanelView().frame(width: 180)
         }
         .padding(.horizontal, 6)
-        .animation(.smooth(duration: 0.25), value: sonos.isActive)
     }
 }
 
@@ -40,29 +34,7 @@ struct AlbumArtView: View {
     let albumArtNamespace: Namespace.ID
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            if Defaults[.lightingEffect] {
-                albumArtBackground
-            }
-            albumArtButton
-        }
-    }
-
-    private var albumArtBackground: some View {
-        Image(nsImage: musicManager.albumArt)
-            .resizable()
-            .clipped()
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: Defaults[.cornerRadiusScaling]
-                        ? MusicPlayerImageSizes.cornerRadiusInset.opened
-                        : MusicPlayerImageSizes.cornerRadiusInset.closed)
-            )
-            .aspectRatio(1, contentMode: .fit)
-            .scaleEffect(x: 1.3, y: 1.4)
-            .rotationEffect(.degrees(92))
-            .blur(radius: 40)
-            .opacity(musicManager.isPlaying ? 0.5 : 0)
+        albumArtButton
     }
 
     private var albumArtButton: some View {
@@ -154,7 +126,7 @@ struct MusicControlsView: View {
                 nsFont: .headline,
                 textColor: Defaults[.playerColorTinting]
                     ? Color(nsColor: musicManager.avgColor)
-                        .ensureMinimumBrightness(factor: 0.6) : .gray,
+                        .ensureMinimumBrightness(factor: 0.6) : .white.opacity(0.6),
                 frameWidth: width
             )
             .fontWeight(.medium)
@@ -172,7 +144,7 @@ struct MusicControlsView: View {
                             return musicManager.lyricLine(at: currentElapsed)
                         }
                         let trimmed = musicManager.currentLyrics.trimmingCharacters(in: .whitespacesAndNewlines)
-                        return trimmed.isEmpty ? "No lyrics found" : trimmed.replacingOccurrences(of: "\n", with: " ")
+                        return trimmed.isEmpty ? "" : trimmed.replacingOccurrences(of: "\n", with: " ")
                     }()
                     let isPersian = line.unicodeScalars.contains { scalar in
                         let v = scalar.value
@@ -182,7 +154,7 @@ struct MusicControlsView: View {
                         .constant(line),
                         font: .subheadline,
                         nsFont: .subheadline,
-                        textColor: musicManager.isFetchingLyrics ? .gray.opacity(0.7) : .gray,
+                        textColor: .white.opacity(musicManager.isFetchingLyrics ? 0.35 : 0.55),
                         frameWidth: width
                     )
                     .font(isPersian ? .custom("Vazirmatn-Regular", size: NSFont.preferredFont(forTextStyle: .subheadline).pointSize) : .subheadline)
@@ -489,7 +461,7 @@ struct MusicSliderView: View {
         .monospacedDigit()
         .foregroundColor(
             Defaults[.playerColorTinting]
-                ? Color(nsColor: color).ensureMinimumBrightness(factor: 0.6) : .gray
+                ? Color(nsColor: color).ensureMinimumBrightness(factor: 0.6) : .white.opacity(0.55)
         )
         .font(.caption)
         .onChange(of: currentDate) {
@@ -532,7 +504,7 @@ struct CustomSlider: View {
 
             ZStack(alignment: .leading) {
                 Rectangle()
-                    .fill(.gray.opacity(0.3))
+                    .fill(.white.opacity(0.18))
                     .frame(height: height)
 
                 Rectangle()

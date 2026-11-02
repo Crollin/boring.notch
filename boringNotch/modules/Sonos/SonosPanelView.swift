@@ -2,7 +2,7 @@
 //  SonosPanelView.swift
 //  boringNotch
 //
-//  Panneau Sonos à droite du lecteur (style widgets) : groupe actif, volume, pièces, favoris.
+//  Pièces et favoris Sonos, dépliés depuis la ligne Sonos de UpNextPanelView (volume du groupe : touches du clavier).
 //  Hors du drawingGroup du lecteur : ScrollView et TextField ne s'y dessinent pas.
 //
 
@@ -17,65 +17,15 @@ struct SonosPanelView: View {
     private var members: [String] { store.activeGroup?.memberIDs ?? [] }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            header
-            volumeRow
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(store.rooms) { room in roomRow(room) }
-                    chips.padding(.top, 4)
-                }
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(store.rooms) { room in roomRow(room) }
+                chips.padding(.top, 4)
             }
-            .mask(LinearGradient(stops: [.init(color: .black, location: 0.85), .init(color: .clear, location: 1)],
-                                 startPoint: .top, endPoint: .bottom))
         }
+        .mask(LinearGradient(stops: [.init(color: .black, location: 0.85), .init(color: .clear, location: 1)],
+                             startPoint: .top, endPoint: .bottom))
         .animation(.smooth(duration: 0.2), value: members)
-        .animation(.smooth(duration: 0.2), value: store.isMuted)
-    }
-
-    private var header: some View {
-        HStack(spacing: 7) {
-            Image(systemName: members.count > 1 ? "hifispeaker.2.fill" : "hifispeaker.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Color.effectiveAccent)
-                .frame(width: 20, height: 20)
-                .background(Circle().fill(Color.effectiveAccent.opacity(0.18)))
-            VStack(alignment: .leading, spacing: 0) {
-                Text(store.label).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                Text(members.count > 1 ? "\(members.count) pièces · Sonos" : "Sonos")
-                    .font(.system(size: 9, weight: .medium)).foregroundStyle(.gray)
-            }
-        }
-    }
-
-    private var volumeRow: some View {
-        HStack(spacing: 7) {
-            Button { Task { await store.toggleMute() } } label: {
-                Image(systemName: volumeIcon)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(store.isMuted ? Color.red.opacity(0.85) : .gray)
-                    .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 14)
-            }
-            .buttonStyle(.plain)
-            .help(store.isMuted ? "Réactiver le son" : "Couper le son")
-            SonosVolumeSlider(value: store.groupVolume) { v in await store.setGroupVolume(v) }
-                .frame(height: 6)
-                .opacity(store.isMuted ? 0.35 : 1)
-            Text("\(store.groupVolume)")
-                .font(.system(size: 10, weight: .medium).monospacedDigit()).foregroundStyle(.gray)
-                .contentTransition(.numericText())
-                .frame(width: 20, alignment: .trailing)
-        }
-    }
-
-    private var volumeIcon: String {
-        if store.isMuted || store.groupVolume == 0 { return "speaker.slash.fill" }
-        switch store.groupVolume {
-        case ..<34: return "speaker.wave.1.fill"
-        case ..<67: return "speaker.wave.2.fill"
-        default: return "speaker.wave.3.fill"
-        }
     }
 
     private func roomRow(_ room: SonosRoom) -> some View {
@@ -84,14 +34,14 @@ struct SonosPanelView: View {
             Button { Task { await store.toggle(room.id) } } label: {
                 Image(systemName: isMember ? "checkmark.circle.fill" : "plus.circle")
                     .font(.system(size: 12))
-                    .foregroundStyle(isMember ? Color.effectiveAccent : .gray.opacity(0.7))
+                    .foregroundStyle(isMember ? Color.effectiveAccent : .white.opacity(0.45))
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
             .help(isMember ? "Retirer du groupe" : "Ajouter au groupe")
             Button { Task { await store.move(to: room.id) } } label: {
                 Text(room.name).font(.system(size: 11.5, weight: isMember ? .medium : .regular))
-                    .foregroundStyle(isMember ? .white : .gray)
+                    .foregroundStyle(.white.opacity(isMember ? 1 : 0.55))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())

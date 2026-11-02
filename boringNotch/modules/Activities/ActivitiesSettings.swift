@@ -31,7 +31,7 @@ struct ActivitiesSettings: View {
             } header: {
                 Text("Général")
             } footer: {
-                note("Les plus importantes d'abord : micro et caméra, agents, téléchargements, notifications, minuteur, rester éveillé. La durée s'applique aux commandes, disques, casques et téléchargements terminés.")
+                note("Les plus importantes d'abord : micro et caméra, agents, téléchargements, notifications, minuteur, rester éveillé. La durée s'applique aux commandes, disques et téléchargements terminés.")
             }
 
             Section {
@@ -87,7 +87,7 @@ struct ActivitiesSettings: View {
             } header: {
                 Text("Appareils")
             } footer: {
-                note("Un clic sur la pastille du casque en fait la sortie audio.")
+                note("À la connexion d'un casque, la notch s'élargit quelques secondes avec son nom.")
             }
 
             Section {

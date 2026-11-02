@@ -2,7 +2,7 @@
 //  SpotifyWebAPI.swift
 //  boringNotch
 //
-//  Titres likés Spotify via la Web API (l'AppleScript de Spotify ne sait pas liker).
+//  Titres likés et file d'attente Spotify via la Web API (l'AppleScript de Spotify ne sait faire ni l'un ni l'autre).
 //  OAuth PKCE sans secret : redirection loopback http://127.0.0.1:8898/callback,
 //  refresh token dans le trousseau. Endpoints /me/library (migration Spotify fév. 2026).
 //
@@ -18,7 +18,7 @@ final class SpotifyWebAPI: ObservableObject {
     static let shared = SpotifyWebAPI()
     static let port: NWEndpoint.Port = 8898
     static let redirectURI = "http://127.0.0.1:8898/callback"
-    private static let scopes = "user-library-read user-library-modify"
+    private static let scopes = "user-library-read user-library-modify user-read-playback-state user-read-currently-playing user-read-recently-played"
 
     @Published private(set) var isConnected = false
     @Published private(set) var lastError: String?
@@ -67,20 +67,68 @@ final class SpotifyWebAPI: ObservableObject {
 
     /// nil si non connecté ou en cas d'erreur.
     func isSaved(_ uri: String) async -> Bool? {
-        guard let data = await call("GET", "me/library/contains", uri: uri),
+        guard let data = await call("GET", "me/library/contains", query: [.init(name: "uris", value: uri)]),
               let arr = try? JSONDecoder().decode([Bool].self, from: data) else { return nil }
         return arr.first
     }
 
     /// true si la requête a abouti.
     func setSaved(_ uri: String, _ saved: Bool) async -> Bool {
-        await call(saved ? "PUT" : "DELETE", "me/library", uri: uri) != nil
+        await call(saved ? "PUT" : "DELETE", "me/library", query: [.init(name: "uris", value: uri)]) != nil
     }
 
-    private func call(_ method: String, _ path: String, uri: String, retry: Bool = true) async -> Data? {
+    // MARK: - File d'attente
+
+    struct QueueTrack: Identifiable, Equatable {
+        let id: String  // uri
+        let title: String
+        let artist: String
+        let artURL: URL?
+    }
+
+    /// Titre précédent et deux suivants ; nil si non connecté, sans lecture active ou scopes manquants
+    /// (connexion antérieure à la file d'attente : il faut se reconnecter).
+    func upNext() async -> (previous: QueueTrack?, next: [QueueTrack])? {
+        guard let data = await call("GET", "me/player/queue"),
+              let q = try? JSONDecoder().decode(QueueResponse.self, from: data) else { return nil }
+        let current = q.currently_playing?.uri
+        var previous: QueueTrack?
+        if let data = await call("GET", "me/player/recently-played", query: [.init(name: "limit", value: "5")]),
+           let r = try? JSONDecoder().decode(RecentResponse.self, from: data) {
+            previous = r.items.map(\.track).first { $0.uri != current }?.queueTrack
+        }
+        // Spotify répète la file (lecture en boucle, playlist courte) : on dédoublonne, identifiant stable pour l'animation.
+        var seen: Set<String> = [current ?? ""]
+        let next = q.queue.filter { seen.insert($0.uri).inserted }.prefix(2).map(\.queueTrack)
+        return (previous, Array(next))
+    }
+
+    /// Morceau ou épisode de podcast (champs optionnels pour décoder les deux).
+    private struct APIItem: Decodable {
+        struct Named: Decodable { let name: String }
+        struct Image: Decodable { let url: URL }
+        struct Album: Decodable { let images: [Image] }
+        let uri: String
+        let name: String
+        let artists: [Named]?
+        let album: Album?
+        let show: Named?
+        let images: [Image]?
+
+        // Spotify trie les images de la plus grande à la plus petite (64 px) : la dernière suffit en vignette.
+        var queueTrack: QueueTrack {
+            QueueTrack(id: uri, title: name,
+                       artist: artists?.map(\.name).joined(separator: ", ") ?? show?.name ?? "",
+                       artURL: (album?.images ?? images)?.last?.url)
+        }
+    }
+    private struct QueueResponse: Decodable { let currently_playing: APIItem?; let queue: [APIItem] }
+    private struct RecentResponse: Decodable { struct Item: Decodable { let track: APIItem }; let items: [Item] }
+
+    private func call(_ method: String, _ path: String, query: [URLQueryItem] = [], retry: Bool = true) async -> Data? {
         guard let token = await validToken() else { return nil }
         var c = URLComponents(string: "https://api.spotify.com/v1/" + path)!
-        c.queryItems = [.init(name: "uris", value: uri)]
+        if !query.isEmpty { c.queryItems = query }
         var req = URLRequest(url: c.url!)
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -88,7 +136,7 @@ final class SpotifyWebAPI: ObservableObject {
               let status = (resp as? HTTPURLResponse)?.statusCode else { return nil }
         if status == 401, retry {
             accessToken = nil
-            return await call(method, path, uri: uri, retry: false)
+            return await call(method, path, query: query, retry: false)
         }
         guard (200..<300).contains(status) else {
             lastError = "Spotify \(status) : \(String(data: data, encoding: .utf8) ?? "")"

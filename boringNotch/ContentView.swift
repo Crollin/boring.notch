@@ -65,6 +65,8 @@ struct ContentView: View {
             && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
         {
             chinWidth = 640
+        } else if coordinator.expandingView.type == .headset && coordinator.expandingView.show && vm.notchState == .closed {
+            chinWidth = vm.closedNotchSize.width + 10 + 2 * HeadsetConnectedView.sideWidth
         } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music)
             && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle)
             && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed
@@ -78,6 +80,32 @@ struct ContentView: View {
         }
 
         return chinWidth
+    }
+
+    /// Lecteur ouvert : la pochette, très floutée, teinte toute la notch ; le haut reste noir pour se fondre dans l'encoche.
+    private var showsAlbumAmbient: Bool {
+        vm.notchState == .open && coordinator.currentView == .home
+            && Defaults[.lightingEffect] && !musicManager.isPlayerIdle
+    }
+
+    private var notchBackground: some View {
+        ZStack {
+            Color.black
+            if showsAlbumAmbient {
+                Image(nsImage: musicManager.albumArt)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .blur(radius: 60, opaque: true)
+                    .saturation(1.3)
+                    // ponytail: plafond fixe ; une pochette très claire réduit le contraste du texte secondaire.
+                    .opacity(musicManager.isPlaying ? 0.42 : 0.2)
+                    .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.45)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .transition(.opacity)
+            }
+        }
+        .animation(.smooth(duration: 0.6), value: showsAlbumAmbient)
+        .animation(.smooth(duration: 0.6), value: musicManager.isPlaying)
     }
 
     var body: some View {
@@ -100,7 +128,7 @@ struct ContentView: View {
                         : cornerRadiusInsets.closed.bottom
                     )
                     .padding([.horizontal, .bottom], vm.notchState == .open ? 12 : 0)
-                    .background(.black)
+                    .background { notchBackground }
                     .clipShape(currentNotchShape)
                     .overlay(alignment: .top) {
                         Rectangle()
@@ -298,6 +326,8 @@ struct ContentView: View {
                             .frame(width: 76, alignment: .trailing)
                         }
                         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
+                      } else if coordinator.expandingView.type == .headset && coordinator.expandingView.show && vm.notchState == .closed {
+                          HeadsetConnectedView(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight)
                       } else if coordinator.sneakPeek.show && Defaults[.inlineHUD] && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
                           InlineHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon, hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)
