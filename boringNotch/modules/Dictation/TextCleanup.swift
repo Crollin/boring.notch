@@ -98,6 +98,16 @@ enum TextCleanup {
         return out
     }
 
+    /// Mot épelé que la reconnaissance a mal découpé (« T. A.ILS CALE ») → « Tailscale ». nil si ce n'est pas de l'épellation.
+    // ponytail: heuristique : début en « X. », puis lettres seules ; mot de plus de 4 lettres → Capitalisé (sinon sigle en majuscules).
+    static func spelledWord(_ text: String) -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.range(of: "^\\p{Lu}\\.[\\p{L}.,\\s]*$", options: .regularExpression) != nil else { return nil }
+        let letters = t.filter(\.isLetter)
+        guard letters.count >= 3, letters.count <= 30 else { return nil }
+        return letters.count > 4 ? letters.prefix(1).uppercased() + letters.dropFirst().lowercased() : letters.uppercased()
+    }
+
     /// Une règle par ligne : `avant => après` (insensible à la casse, mot entier).
     static func substitute(_ text: String) -> String {
         var out = text
@@ -149,7 +159,7 @@ enum TextCleanup {
     @discardableResult
     static func learn(from old: String, to new: String) -> String? {
         let trim = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-        let a = collapseSpelling(old).trimmingCharacters(in: trim), b = new.trimmingCharacters(in: trim)
+        let a = collapseSpelling(old).trimmingCharacters(in: trim), b = spelledWord(new) ?? new.trimmingCharacters(in: trim)
         func words(_ s: String) -> Int { s.split(whereSeparator: \.isWhitespace).count }
         guard !a.isEmpty, !b.isEmpty, a != b, words(a) <= 3, words(b) <= 3, a.count <= 40, b.count <= 40,
               !a.contains("=>"), !b.contains("=>") else { return nil }

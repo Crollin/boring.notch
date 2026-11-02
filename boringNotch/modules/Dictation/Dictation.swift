@@ -162,6 +162,7 @@ final class Dictation: ObservableObject {
                 guard let out else { await fail(DictationError.commandFailed); return }
                 text = out
             } else {
+                if let word = TextCleanup.spelledWord(text) { text = word } // mot épelé → collé d'un bloc
                 if let rule = TextCleanup.learn(from: sel, to: text) { propose(rule) } // mot sélectionné puis redicté
             }
         }
@@ -403,37 +404,29 @@ struct DictationPill: View {
     }
 }
 
-/// Règle apprise, sur deux lignes (avant / après) avec une pastille verte (valider) et une rouge (ignorer).
+/// Règle apprise : « avant → après » sur une ligne, pastille verte (valider) et rouge (ignorer). Même gabarit que les autres pastilles.
 @available(macOS 26.0, *)
 struct DictationOffer: View {
     let height: CGFloat
     let rule: String
-    private var parts: (String, String) {
-        let p = rule.components(separatedBy: " => ")
-        return (p.first ?? rule, p.count > 1 ? p[1] : "")
-    }
+    @State private var pop = false
+
     var body: some View {
-        let h = max(height - 8, 24)
-        HStack(spacing: 6) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(parts.0).font(.system(size: 8.5, weight: .medium)).foregroundStyle(.white.opacity(0.55)).strikethrough()
-                Text(parts.1).font(.system(size: 9.5, weight: .bold)).foregroundStyle(.white)
-            }
-            .lineLimit(1).truncationMode(.middle).frame(maxWidth: 120, alignment: .leading)
+        ActivityPill(height: height, help: "Règle apprise : l'ajouter aux substitutions ?") {
+            Image(systemName: "sparkles").foregroundStyle(.yellow).symbolEffect(.pulse)
+            Text(rule.replacingOccurrences(of: " => ", with: " → "))
+                .lineLimit(1).truncationMode(.middle).frame(maxWidth: 260)
             tile("checkmark", .green, accept: true)
             tile("xmark", .red, accept: false)
         }
-        .padding(.leading, 9).padding(.trailing, 3)
-        .frame(height: h)
-        .background(Capsule().fill(.black))
-        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-        .help("Règle apprise : l'ajouter aux substitutions ?")
+        .scaleEffect(pop ? 1 : 0.85)
+        .onAppear { withAnimation(.spring(response: 0.4, dampingFraction: 0.5)) { pop = true } }
     }
 
     private func tile(_ icon: String, _ color: Color, accept: Bool) -> some View {
         Button { Dictation.shared.answerOffer(accept: accept) } label: {
-            Image(systemName: icon).font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
-                .frame(width: 19, height: 19).background(Circle().fill(color))
+            Image(systemName: icon).font(.system(size: 8, weight: .heavy)).foregroundStyle(.white)
+                .frame(width: 16, height: 16).background(Circle().fill(color))
         }
         .buttonStyle(.plain)
     }
