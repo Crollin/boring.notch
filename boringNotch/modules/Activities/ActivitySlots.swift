@@ -47,10 +47,10 @@ struct ActivitySlots: View {
             HStack(spacing: 0) {
                 HStack { Spacer(minLength: 0); slot(shown.first, anchor: .trailing) }
                     .frame(maxWidth: .infinity)
-                    .padding(.trailing, notchWidth / 2 + 6)
+                    .padding(.trailing, notchWidth / 2 + 10)
                 HStack { slot(shown.dropFirst().first, anchor: .leading); Spacer(minLength: 0) }
                     .frame(maxWidth: .infinity)
-                    .padding(.leading, notchWidth / 2 + 6)
+                    .padding(.leading, notchWidth / 2 + 10)
             }
             .animation(.spring(response: 0.45, dampingFraction: 0.8), value: shown.map(\.id))
         }
@@ -78,7 +78,7 @@ struct ActivityPill<Content: View>: View {
             .font(.system(size: 11, weight: .semibold).monospacedDigit())
             .foregroundStyle(.white)
             .padding(.horizontal, 8)
-            .frame(height: max(height - 4, 20))
+            .frame(height: max(height - 8, 18)) // 4 pt d’air en haut et en bas
             .background(Capsule().fill(.black))
             .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             .help(help)

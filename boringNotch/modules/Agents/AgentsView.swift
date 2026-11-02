@@ -474,7 +474,7 @@ private struct AgentBubble: View {
     @State private var pulse = false
 
     private var tint: Color { kind == .attention ? .red : kind == .idle ? .green : kind == .reply ? .blue : .orange }
-    private var diameter: CGFloat { max(height - 4, 20) * (kind == .idle ? 0.78 : 1) }
+    private var diameter: CGFloat { max(height - 8, 18) * (kind == .idle ? 0.78 : 1) }
 
     var body: some View {
         ZStack {
@@ -497,7 +497,7 @@ private struct AgentBubble: View {
                 Text("?").font(.system(size: 7, weight: .heavy)).foregroundStyle(.white)
                     .frame(width: 11, height: 11).background(Circle().fill(Color.blue))
                     .overlay(Circle().stroke(.black, lineWidth: 1.5))
-                    .offset(x: 3, y: -2).transition(.scale)
+                    .offset(x: 3, y: 1).transition(.scale) // y ≥ 0 : le haut de la notch rogne tout ce qui dépasse
             }
         }
         .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
