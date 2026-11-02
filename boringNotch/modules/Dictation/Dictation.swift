@@ -9,6 +9,7 @@
 import AVFoundation
 import Defaults
 import FoundationModels
+import OSLog
 import Speech
 import SwiftUI
 
@@ -32,6 +33,8 @@ final class Dictation: ObservableObject {
     @Published private(set) var partial = ""
     @Published private(set) var error: String?
     @Published private(set) var justDone = false
+    @Published private(set) var offer: String?   // règle apprise proposée dans la notch (reste dans les réglages après)
+    private var offerTask: Task<Void, Never>?
     private(set) var startedAt = Date()
     let meter = LevelMeter()
 
@@ -150,6 +153,8 @@ final class Dictation: ObservableObject {
         var text = TextCleanup.finish(parts ?? [TextCleanup.spoken(TextCleanup.removeFillers(partial), locale: Defaults[.dictationLocale])])
         let sel = selection; selection = nil
         if let sel, !text.isEmpty {
+            Logger(subsystem: "theboringteam.boringnotch", category: "dictation")
+                .info("sélection \(sel.count) car., premier mot « \(text.split(separator: " ").first.map(String.init) ?? "", privacy: .public) », commande : \(TextCleanup.isCommand(text))")
             if TextCleanup.isCommand(text) {
                 // Commande vocale sur la sélection (« raccourcis », « traduis en anglais »…) : le modèle réécrit la sélection.
                 let out = await TextCleanup.command(text, on: sel)
@@ -157,7 +162,7 @@ final class Dictation: ObservableObject {
                 guard let out else { await fail(DictationError.commandFailed); return }
                 text = out
             } else {
-                TextCleanup.learn(from: sel, to: text) // mot sélectionné puis redicté → règle suggérée
+                if let rule = TextCleanup.learn(from: sel, to: text) { propose(rule) } // mot sélectionné puis redicté
             }
         }
         if !text.isEmpty {
@@ -182,6 +187,19 @@ final class Dictation: ObservableObject {
         let a = analyzer; analyzer = nil
         Task { await a?.cancelAndFinishNow() }
         phase = .idle; partial = ""
+    }
+
+    private func propose(_ rule: String) {
+        offer = rule
+        offerTask?.cancel()
+        // ponytail: 12 s dans la notch ; ensuite la règle reste dans Réglages > Dictée.
+        offerTask = Task { try? await Task.sleep(for: .seconds(12)); if !Task.isCancelled { offer = nil } }
+    }
+
+    func answerOffer(accept: Bool) {
+        guard let rule = offer else { return }
+        accept ? TextCleanup.accept(rule) : TextCleanup.dismiss(rule)
+        offerTask?.cancel(); offer = nil
     }
 
     private func flash() {
@@ -259,8 +277,12 @@ struct DictationEntry: Codable, Identifiable, Hashable, Defaults.Serializable {
 @available(macOS 26.0, *)
 extension Dictation {
     func activity(height: CGFloat) -> Activity? {
-        guard Defaults[.activityDictation], error != nil || phase != .idle || justDone else { return nil }
-        return Activity(id: "dictation", priority: 100, view: AnyView(DictationPill(height: height)))
+        guard Defaults[.activityDictation] else { return nil }
+        if error != nil || phase != .idle || justDone {
+            return Activity(id: "dictation", priority: 100, view: AnyView(DictationPill(height: height)))
+        }
+        if let offer { return Activity(id: "dictation-offer", priority: 90, view: AnyView(DictationOffer(height: height, rule: offer))) }
+        return nil
     }
 }
 
@@ -377,6 +399,22 @@ struct DictationPill: View {
                 }
             }
             .frame(width: px * 9, height: px * 7)
+        }
+    }
+}
+
+/// « boring => Boring ✓ ✗ » : valide ou ignore la règle apprise sans ouvrir les réglages.
+@available(macOS 26.0, *)
+struct DictationOffer: View {
+    let height: CGFloat
+    let rule: String
+    var body: some View {
+        ActivityPill(height: height, help: "Règle apprise : l'ajouter aux substitutions ?") {
+            Text(rule.replacingOccurrences(of: " => ", with: " → ")).lineLimit(1).frame(maxWidth: 150)
+            Button { Dictation.shared.answerOffer(accept: true) } label: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                .buttonStyle(.plain)
+            Button { Dictation.shared.answerOffer(accept: false) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                .buttonStyle(.plain)
         }
     }
 }

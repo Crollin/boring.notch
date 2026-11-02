@@ -103,7 +103,8 @@ enum TextCleanup {
 
     // MARK: sélection : commande vocale et apprentissage
 
-    private static let commandStart = "^(raccourcis|résume|reformule|traduis|corrige|simplifie|développe|améliore|rends|rend|mets|passe|réécris|translate|summari[sz]e|shorten|rewrite|make it|fix|simplify|expand|improve)\\b"
+    // Racines : la transcription varie (« raccourci », « reformulé », « traduit »…). Mots courts : exacts.
+    private static let commandStart = "^(raccourci|résum|reformul|traduis|traduit|traduire|corrig|simplifi|développ|amélior|réécri|rewrite|translat|summar|shorten|expand|improve|simplify|(?:rends|rend|mets|met|passe|fix|make it)\\b)"
 
     static func isCommand(_ spoken: String) -> Bool {
         spoken.lowercased().range(of: commandStart, options: .regularExpression) != nil
@@ -128,19 +129,34 @@ enum TextCleanup {
     }
 
     /// Mot(s) sélectionné(s) puis redicté(s), proches l'un de l'autre → règle suggérée « avant => après ».
-    static func learn(from old: String, to new: String) {
+    @discardableResult
+    static func learn(from old: String, to new: String) -> String? {
         let trim = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
         let a = old.trimmingCharacters(in: trim), b = new.trimmingCharacters(in: trim)
         func words(_ s: String) -> Int { s.split(whereSeparator: \.isWhitespace).count }
         guard !a.isEmpty, !b.isEmpty, a != b, words(a) <= 3, words(b) <= 3, a.count <= 40, b.count <= 40,
-              !a.contains("=>"), !b.contains("=>") else { return }
+              !a.contains("=>"), !b.contains("=>") else { return nil }
         let x = Array(a.lowercased().filter { !$0.isWhitespace }), y = Array(b.lowercased().filter { !$0.isWhitespace })
-        guard levenshtein(x, y) * 10 <= max(x.count, y.count) * 6 else { return } // trop différent = réécriture, pas correction
+        guard levenshtein(x, y) * 10 <= max(x.count, y.count) * 6 else { return nil } // trop différent = réécriture, pas correction
         let key = a.lowercased()
         let known = Defaults[.dictationSubstitutions].split(separator: "\n").map { $0.components(separatedBy: "=>")[0].trimmingCharacters(in: .whitespaces).lowercased() }
             + Defaults[.dictationSuggestions].map { $0.components(separatedBy: " => ")[0].lowercased() }
-        guard !known.contains(key) else { return }
-        Defaults[.dictationSuggestions] = Array(([a + " => " + b] + Defaults[.dictationSuggestions]).prefix(30))
+        guard !known.contains(key) else { return nil }
+        let rule = a + " => " + b
+        Defaults[.dictationSuggestions] = Array(([rule] + Defaults[.dictationSuggestions]).prefix(30))
+        return rule
+    }
+
+    /// Valide une règle suggérée : elle rejoint les substitutions.
+    static func accept(_ rule: String) {
+        var subs = Defaults[.dictationSubstitutions]
+        if !subs.isEmpty, !subs.hasSuffix("\n") { subs += "\n" }
+        Defaults[.dictationSubstitutions] = subs + rule + "\n"
+        dismiss(rule)
+    }
+
+    static func dismiss(_ rule: String) {
+        Defaults[.dictationSuggestions].removeAll { $0 == rule }
     }
 
     private static func levenshtein(_ a: [Character], _ b: [Character]) -> Int {
