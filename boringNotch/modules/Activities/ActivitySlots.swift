@@ -24,6 +24,7 @@ struct ActivitySlots: View {
     @ObservedObject private var privacy = PrivacyMonitor.shared
     @ObservedObject private var downloads = DownloadMonitor.shared
     @ObservedObject private var awake = StayAwake.shared
+    @ObservedObject private var timer = NotchTimer.shared
     @ObservedObject private var events = ActivityEvents.shared
     @Default(.activityAgents) private var showAgents
     @Default(.activityMaxPills) private var maxPills
@@ -35,6 +36,7 @@ struct ActivitySlots: View {
             showAgents ? agents.activity(now: now, height: height, onTap: openAgents) : nil,
             downloads.activity(height: height),
             events.activity(now: now, height: height),
+            timer.activity(now: now, height: height),
             awake.activity(now: now, height: height),
             dictationActivity(),
         ]

@@ -100,6 +100,7 @@ extension Defaults.Keys {
     static let showMirror = Key<Bool>("showMirror", default: false)
     static let mirrorShape = Key<MirrorShapeEnum>("mirrorShape", default: MirrorShapeEnum.rectangle)
     static let settingsIconInNotch = Key<Bool>("settingsIconInNotch", default: true)
+    static let showWeather = Key<Bool>("showWeather", default: true)
     static let lightingEffect = Key<Bool>("lightingEffect", default: true)
     static let enableShadow = Key<Bool>("enableShadow", default: true)
     static let cornerRadiusScaling = Key<Bool>("cornerRadiusScaling", default: true)
@@ -178,6 +179,7 @@ extension Defaults.Keys {
     static let dictationHistory = Key<[DictationEntry]>("dictationHistory", default: [])   // ponytail: 200 entrées max dans UserDefaults ; fichier JSON si ça grossit
     static let dictationCleanup = Key<Bool>("dictationCleanup", default: true)
     static let dictationSubstitutions = Key<String>("dictationSubstitutions", default: "")
+    static let timerShortcutMinutes = Key<Int>("timerShortcutMinutes", default: 25)
     static let activityCommands = Key<Bool>("activityCommands", default: true)
     static let activityDisks = Key<Bool>("activityDisks", default: true)
     static let activityHeadsets = Key<Bool>("activityHeadsets", default: true)

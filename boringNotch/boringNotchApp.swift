@@ -40,6 +40,7 @@ struct DynamicNotchApp: App {
             CheckForUpdatesView(updater: updaterController.updater)
             Divider()
             StayAwakeMenu()
+            TimerMenu()
             Divider()
             Button("Restart Boring Notch") {
                 ApplicationRelauncher.restart()
@@ -286,6 +287,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotchModules.startAll()
         SonosStore.shared.start()
         PrivacyMonitor.shared.start()
+        WeatherStore.shared.start()
         DownloadMonitor.shared.start()
         ActivityEvents.shared.start()
 
@@ -380,6 +382,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardShortcuts.onKeyDown(for: .toggleStayAwake) {
             Task { @MainActor in StayAwake.shared.toggle() }
+        }
+
+        KeyboardShortcuts.onKeyDown(for: .toggleTimer) {
+            Task { @MainActor in NotchTimer.shared.toggle() }
+        }
+
+        // Ouvre le notch sur l'onglet Copies (ou le referme s'il y est déjà).
+        KeyboardShortcuts.onKeyDown(for: .openClipboard) { [weak self] in
+            Task { @MainActor in
+                guard let vm = self?.vm else { return }
+                let coordinator = BoringViewCoordinator.shared
+                if vm.notchState == .open, coordinator.currentView == .module("clipboard") { vm.close(); return }
+                coordinator.currentView = .module("clipboard")
+                vm.open()
+            }
         }
 
         KeyboardShortcuts.onKeyDown(for: .toggleNotchOpen) { [weak self] in

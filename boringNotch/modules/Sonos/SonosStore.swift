@@ -85,7 +85,12 @@ final class SonosStore: ObservableObject {
     }
 
     private func detect() async -> Detection {
-        guard Defaults[.enableSonos], let spotify = await Self.spotifyState() else { return .off }
+        // Vérification locale avant l'AppleScript : pas d'Apple Event toutes les 3 s quand Spotify est fermé.
+        guard Defaults[.enableSonos],
+              !NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").isEmpty,
+              let spotify = await Self.spotifyState() else { return .off }
+        // En pause sans Sonos déjà repérée : rien à chercher sur le réseau ; la reprise sera vue au tour suivant.
+        if !spotify.playing && activeGroup == nil { return .off }
         guard let host = await reachableHost(),
               let topo = try? await client.topology(host: host) else { return .miss }
         let sorted = topo.rooms.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
