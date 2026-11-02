@@ -120,28 +120,50 @@ final class Dictation: ObservableObject {
         guard phase == .listening else { return }
         phase = .processing
         generation += 1; limitTask?.cancel(); limitTask = nil
+        let g = generation
         engine.stop(); engine.inputNode.removeTap(onBus: 0)
         input?.finish(); input = nil
-        do {
-            try await analyzer?.finalizeAndFinishThroughEndOfInput()
-            try await results?.value
-            analyzer = nil; results = nil
-            var parts: [String] = []
-            for c in chunks { parts.append(await c.value) }
-            let text = TextCleanup.finish(parts)
-            if !text.isEmpty {
-                await TextInserter.insert(text)
-                if Defaults[.dictationKeepHistory] {
-                    var h = Defaults[.dictationHistory]
-                    h.insert(DictationEntry(text: text, raw: raws.joined(separator: " ")), at: 0)
-                    Defaults[.dictationHistory] = Array(h.prefix(200))
-                }
-                flash()
-            }
-            phase = .idle; partial = ""; chunks = []; raws = []; warm = nil
-        } catch {
-            await fail(error)
+
+        // Chaque attente est bornée : la dictée ne reste jamais bloquée sur « traitement ».
+        let a = analyzer, r = results
+        let finished = await withDeadline(6) { () async -> Bool? in
+            do { try await a?.finalizeAndFinishThroughEndOfInput(); try await r?.value; return true } catch { return false }
         }
+        guard generation == g else { return }          // annulée par un clic pendant l'attente
+        if finished != true { r?.cancel(); await a?.cancelAndFinishNow() }
+        analyzer = nil; results = nil
+
+        let all = chunks
+        let parts = await withDeadline(12) { () async -> [String]? in
+            var out: [String] = []
+            for c in all { out.append(await c.value) }
+            return out
+        }
+        guard generation == g else { return }
+        // Délai dépassé ou erreur : on colle ce qui a été entendu (texte partiel, règles seulement) plutôt que rien.
+        let text = TextCleanup.finish(parts ?? [TextCleanup.spoken(TextCleanup.removeFillers(partial), locale: Defaults[.dictationLocale])])
+        if !text.isEmpty {
+            await TextInserter.insert(text)
+            if Defaults[.dictationKeepHistory] {
+                var h = Defaults[.dictationHistory]
+                h.insert(DictationEntry(text: text, raw: raws.joined(separator: " ")), at: 0)
+                Defaults[.dictationHistory] = Array(h.prefix(200))
+            }
+            flash()
+        }
+        guard generation == g else { return }
+        phase = .idle; partial = ""; chunks = []; raws = []; warm = nil
+    }
+
+    /// Abandonne tout (clic pendant le traitement) : rien n'est collé.
+    func cancel() {
+        generation += 1; limitTask?.cancel(); limitTask = nil
+        engine.stop(); engine.inputNode.removeTap(onBus: 0)
+        input?.finish(); input = nil; results?.cancel(); results = nil
+        chunks.forEach { $0.cancel() }; chunks = []; raws = []; warm = nil
+        let a = analyzer; analyzer = nil
+        Task { await a?.cancelAndFinishNow() }
+        phase = .idle; partial = ""
     }
 
     private func flash() {
@@ -163,7 +185,9 @@ final class Dictation: ObservableObject {
     }
 
     /// Clic sur la bulle : terminer la dictée en cours.
-    func stopNow() { if phase == .listening { Task { await stop() } } }
+    func stopNow() {
+        switch phase { case .listening: Task { await stop() }; case .processing: cancel(); default: break }
+    }
 
     fileprivate func setPartial(_ s: String) { partial = s }
 
@@ -226,6 +250,7 @@ extension Dictation {
 /// - traitement : il regarde à gauche et à droite, anneau orange qui tourne
 /// - fini : sourire vert qui rebondit
 /// - erreur : jaune, « ! »
+/// Un clic termine l'écoute, ou abandonne le traitement s'il traîne.
 /// Remplace la pastille « micro utilisé » le temps de la dictée (voir PrivacyMonitor).
 @available(macOS 26.0, *)
 struct DictationPill: View {
@@ -259,7 +284,7 @@ struct DictationPill: View {
         .buttonStyle(.plain)
         .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
         .animation(.spring(response: 0.35, dampingFraction: 0.55), value: mood)
-        .help(d.error ?? (d.phase == .listening ? "Dictée en cours — cliquer pour terminer" : "Dictée"))
+        .help(d.error ?? (d.phase == .listening ? "Dictée en cours — cliquer pour terminer" : d.phase == .processing ? "Traitement — cliquer pour annuler" : "Dictée"))
     }
 
     @ViewBuilder private func ring(t: Double, level: CGFloat) -> some View {

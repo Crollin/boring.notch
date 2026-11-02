@@ -6,8 +6,10 @@
 //  Position : CoreLocation (précision ~1 km, autorisation demandée une fois). Données : Open-Meteo (sans clé).
 //
 
+import AppKit
 import CoreLocation
 import Defaults
+import OSLog
 import SwiftUI
 
 @MainActor
@@ -31,6 +33,8 @@ final class WeatherStore: NSObject, ObservableObject {
         guard timer == nil else { return }
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyKilometer
+        // App sans Dock : sans activation, macOS n'affiche pas toujours la demande d'autorisation.
+        if manager.authorizationStatus == .notDetermined { NSApp.activate(ignoringOtherApps: true) }
         manager.requestWhenInUseAuthorization()
         manager.requestLocation()
         // ponytail: une mise à jour toutes les 30 min suffit pour une icône et une température.
@@ -76,9 +80,12 @@ extension WeatherStore: CLLocationManagerDelegate {
         Task { @MainActor in await WeatherStore.shared.fetch(c) }
     }
 
-    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Logger(subsystem: "theboringteam.boringnotch", category: "weather").error("localisation : \(error.localizedDescription, privacy: .public)")
+    }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Logger(subsystem: "theboringteam.boringnotch", category: "weather").info("autorisation : \(manager.authorizationStatus.rawValue)")
         switch manager.authorizationStatus {
         case .notDetermined, .denied, .restricted: break
         default: manager.requestLocation()

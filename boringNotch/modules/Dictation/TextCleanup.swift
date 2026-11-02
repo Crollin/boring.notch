@@ -96,13 +96,9 @@ enum TextCleanup {
         var options = GenerationOptions()
         options.temperature = 0                                            // déterministe, et plus rapide
         options.maximumResponseTokens = text.count / 2 + 60                // jamais plus long que le segment
-        // ponytail: délai fixe de 8 s ; au-delà on garde le segment tel quel.
-        let out: String? = await withTaskGroup(of: String?.self) { group in
-            group.addTask { try? await session.respond(to: "Texte à corriger :\n" + text, options: options).content }
-            group.addTask { try? await Task.sleep(for: .seconds(8)); return nil }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+        // ponytail: 5 s par segment ; au-delà on garde le segment tel quel.
+        let out = await withDeadline(5) { () async -> String? in
+            try? await session.respond(to: "Texte à corriger :\n" + text, options: options).content
         }
         return out.flatMap { plausible($0, for: text) }
     }
@@ -119,5 +115,25 @@ enum TextCleanup {
         let low = input.lowercased()
         let reply = o.lowercased()
         return markers.contains { reply.contains($0) && !low.contains($0) } ? nil : o
+    }
+}
+
+/// Exécute `work` avec un délai. Renvoie nil si le délai est dépassé, SANS attendre la fin du travail
+/// (un `withTaskGroup` attendrait ses enfants, même annulés : c'est ce qui bloquait la dictée).
+func withDeadline<T: Sendable>(_ seconds: Double, _ work: @escaping @Sendable () async -> T?) async -> T? {
+    await withCheckedContinuation { (cont: CheckedContinuation<T?, Never>) in
+        let once = Once(cont)
+        let job = Task { once.resume(await work()) }
+        Task { try? await Task.sleep(for: .seconds(seconds)); job.cancel(); once.resume(nil) }
+    }
+}
+
+private final class Once<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cont: CheckedContinuation<T?, Never>?
+    init(_ c: CheckedContinuation<T?, Never>) { cont = c }
+    func resume(_ v: T?) {
+        lock.lock(); let c = cont; cont = nil; lock.unlock()
+        c?.resume(returning: v)
     }
 }
