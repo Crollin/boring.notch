@@ -31,7 +31,8 @@ struct CalendarView: View {
                 .frame(width: 230)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+        .padding(.top, 4)
+        .padding(.bottom, 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: selectedDate) { await reload() }
         .task(id: cal.dateInterval(of: .month, for: month)?.start) { await reload() }
@@ -170,7 +171,7 @@ private struct MonthGrid: View {
                 .buttonStyle(.plain)
                 .help("Revenir à aujourd'hui")
             }
-            .padding(.bottom, 2)
+            .frame(height: 15)
 
             HStack(spacing: 0) {
                 ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { i, s in
@@ -180,16 +181,22 @@ private struct MonthGrid: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .frame(height: 13)
-            // Les semaines se partagent la hauteur restante : un mois sur 6 semaines tient sans déborder.
+            .frame(height: 12)
+            // La hauteur disponible varie (notch, onglets) : la taille des chiffres en découle, sans chevauchement.
             let padded = cells + Array(repeating: nil, count: (7 - cells.count % 7) % 7)
-            ForEach(0..<(padded.count / 7), id: \.self) { w in
-                HStack(spacing: 0) {
-                    ForEach(0..<7, id: \.self) { i in
-                        if let day = padded[w * 7 + i] { dayCell(day) } else { Color.clear.frame(maxWidth: .infinity) }
+            let weeks = padded.count / 7
+            GeometryReader { geo in
+                let rowH = geo.size.height / CGFloat(max(weeks, 1))
+                VStack(spacing: 0) {
+                    ForEach(0..<weeks, id: \.self) { w in
+                        HStack(spacing: 0) {
+                            ForEach(0..<7, id: \.self) { i in
+                                if let day = padded[w * 7 + i] { dayCell(day, rowHeight: rowH) } else { Color.clear.frame(maxWidth: .infinity) }
+                            }
+                        }
+                        .frame(height: rowH)
                     }
                 }
-                .frame(minHeight: 0, maxHeight: 21)
             }
         }
     }
@@ -205,27 +212,27 @@ private struct MonthGrid: View {
         return weekday == 1 || weekday == 7
     }
 
-    private func dayCell(_ day: Date) -> some View {
+    private func dayCell(_ day: Date, rowHeight: CGFloat) -> some View {
         let today = cal.isDateInToday(day)
         let selected = cal.isDate(day, inSameDayAs: selectedDate)
         let weekend = cal.isDateInWeekend(day)
         let busy = busyDays.contains(cal.startOfDay(for: day))
+        let dot: CGFloat = 2.5
+        let size = min(18, max(11, rowHeight - dot - 1))   // pastille + point tiennent dans la ligne
         return Button { selectedDate = day } label: {
-            Text("\(cal.component(.day, from: day))")
-                .font(.system(size: 11, weight: today || selected ? .bold : .medium).monospacedDigit())
-                .foregroundStyle(today ? .white : Color(white: weekend ? 0.45 : 0.9))
-                .frame(width: 19, height: 19)
-                .background {
-                    if today { Circle().fill(Color.calendarAccent) }
-                    else if selected { Circle().fill(.white.opacity(0.16)) }
-                }
-                .overlay(alignment: .bottom) {
-                    if busy && !today {
-                        Circle().fill(Color(white: 0.6)).frame(width: 3, height: 3).offset(y: 3)
+            VStack(spacing: 0) {
+                Text("\(cal.component(.day, from: day))")
+                    .font(.system(size: min(11, size * 0.68), weight: today || selected ? .bold : .medium).monospacedDigit())
+                    .foregroundStyle(today ? .white : Color(white: weekend ? 0.45 : 0.9))
+                    .frame(width: size, height: size)
+                    .background {
+                        if today { Circle().fill(Color.calendarAccent) }
+                        else if selected { Circle().fill(.white.opacity(0.16)) }
                     }
-                }
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
+                Circle().fill(busy ? Color(white: 0.6) : .clear).frame(width: dot, height: dot)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
