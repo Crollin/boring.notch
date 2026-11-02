@@ -116,12 +116,25 @@ struct AgentsView: View {
         store.usage.filter { $0.value.isFresh }.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
     }
 
+    /// Session qui attend une réponse ou l'approbation d'un plan : elle prend tout l'onglet, quelle que soit la sélection.
+    private var prompting: AgentSession? {
+        store.sessions.first { $0.state == .waiting && ($0.questions?.isEmpty == false || $0.plan != nil) }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            header
-            switch mode {
-            case .progress: progress
-            case .usage: usagePage
+            // Pendant une question ou un plan : ni en-tête « Progression » ni en-tête de session,
+            // la carte a besoin de toute la hauteur du notch (190 pt, barre d'onglets comprise).
+            if let s = prompting, let qs = s.questions, !qs.isEmpty {
+                QuestionCard(session: s, questions: qs).id(s.id + qs.map(\.question).joined())
+            } else if let s = prompting, let plan = s.plan {
+                PlanCard(session: s, plan: plan)
+            } else {
+                header
+                switch mode {
+                case .progress: progress
+                case .usage: usagePage
+                }
             }
         }
         .padding(.horizontal, 6)
@@ -175,17 +188,7 @@ struct AgentsView: View {
     // MARK: Progression
 
     @ViewBuilder private var progress: some View {
-        if let s = session, s.state == .waiting, s.questions != nil || s.plan != nil {
-            // Question ou plan : toute la largeur, la liste d'étapes n'a pas d'intérêt pendant l'attente.
-            VStack(alignment: .leading, spacing: 8) {
-                agentHeader(s)
-                if let qs = s.questions, !qs.isEmpty {
-                    QuestionCard(session: s, questions: qs).id(s.id + qs.map(\.question).joined())
-                } else if let plan = s.plan {
-                    PlanCard(session: s, plan: plan)
-                }
-            }
-        } else if let s = session {
+        if let s = session {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
                     agentHeader(s)
@@ -387,6 +390,7 @@ private struct QuestionCard: View {
                 }
                 Text(q.question).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).lineLimit(2)
                 Spacer(minLength: 4)
+                Text(session.project).font(.system(size: 10, weight: .medium)).foregroundStyle(secondary).lineLimit(1)
                 if questions.count > 1 {
                     Text("\(index + 1)/\(questions.count)").font(.system(size: 10, weight: .medium).monospacedDigit()).foregroundStyle(secondary)
                 }
@@ -449,6 +453,8 @@ private struct PlanCard: View {
             }
             .frame(maxWidth: .infinity)
             VStack(alignment: .trailing, spacing: 6) {
+                Text("Plan à valider").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                Text(session.project).font(.system(size: 10, weight: .medium)).foregroundStyle(secondary).lineLimit(1)
                 Spacer(minLength: 0)
                 pillButton("Retoucher…", tint: nil) { AgentStore.shared.openTerminal(session) }
                 pillButton("Approuver", tint: .green) { AgentStore.shared.decide(session.id, allow: true) }
