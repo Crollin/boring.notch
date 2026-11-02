@@ -42,6 +42,9 @@ struct SettingsView: View {
                 NavigationLink(value: "Activities") {
                     Label("Activités", systemImage: "capsule.portrait.tophalf.filled")
                 }
+                NavigationLink(value: "Dictation") {
+                    Label("Dictée", systemImage: "mic.fill")
+                }
                 NavigationLink(value: "HUD") {
                     Label("HUDs", systemImage: "dial.medium.fill")
                 }
@@ -84,6 +87,8 @@ struct SettingsView: View {
                     CalendarSettings()
                 case "Activities":
                     ActivitiesSettings()
+                case "Dictation":
+                    if #available(macOS 26.0, *) { DictationSettings() } else { Text("La dictée nécessite macOS 26 ou plus.") }
                 case "HUD":
                     HUD()
                 case "Battery":

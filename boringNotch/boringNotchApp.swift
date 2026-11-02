@@ -375,6 +375,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        if #available(macOS 26.0, *) {
+            KeyboardShortcuts.onKeyDown(for: .dictation) { Task { @MainActor in Dictation.shared.keyDown() } }
+            KeyboardShortcuts.onKeyUp(for: .dictation) { Task { @MainActor in Dictation.shared.keyUp() } }
+        }
+
         KeyboardShortcuts.onKeyDown(for: .toggleStayAwake) {
             Task { @MainActor in StayAwake.shared.toggle() }
         }

@@ -38,9 +38,16 @@ struct ActivitySlots: View {
             events.activity(now: now, height: height),
             timer.activity(now: now, height: height),
             awake.activity(now: now, height: height),
+            dictationActivity(),
         ]
         .compactMap { $0 }
         .sorted { $0.priority > $1.priority }
+    }
+
+    // ponytail: lue à chaque tick de 1 s (pas d'@ObservedObject, la dictée exige macOS 26) ; le texte partiel se rafraîchit donc à 1 Hz.
+    private func dictationActivity() -> Activity? {
+        if #available(macOS 26.0, *) { return Dictation.shared.activity(height: height) }
+        return nil
     }
 
     var body: some View {

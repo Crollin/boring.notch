@@ -10,6 +10,7 @@ import SwiftUI
 
 extension KeyboardShortcuts.Name {
     static let toggleStayAwake = Self("toggleStayAwake")
+    static let dictation = Self("dictation", default: .init(.space, modifiers: [.option]))
     static let toggleTimer = Self("toggleTimer")
     static let openClipboard = Self("openClipboard")
     static let clipboardHistoryPanel = Self("clipboardHistoryPanel", default: .init(.c, modifiers: [.shift, .command]))
