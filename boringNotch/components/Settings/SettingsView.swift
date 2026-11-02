@@ -1201,6 +1201,9 @@ struct Appearance: View {
                 Defaults.Toggle(key: .settingsIconInNotch) {
                     Text("Show settings icon in notch")
                 }
+                Defaults.Toggle(key: .showWeather) {
+                    Text("Météo dans l'en-tête (position approximative, Open-Meteo)")
+                }
 
             } header: {
                 Text("General")
@@ -1757,6 +1760,7 @@ struct Shortcuts: View {
             }
             Section {
                 KeyboardShortcuts.Recorder("Toggle Notch Open:", name: .toggleNotchOpen)
+                KeyboardShortcuts.Recorder("Ouvrir les copies :", name: .openClipboard)
             }
         }
         .accentColor(.effectiveAccent)
