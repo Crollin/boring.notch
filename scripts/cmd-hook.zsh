@@ -23,4 +23,5 @@ _bn_precmd() {
 
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec _bn_preexec
-add-zsh-hook precmd _bn_precmd
+# En tête de liste : sinon un autre hook precmd passe avant et écrase $? (code de sortie).
+precmd_functions=(_bn_precmd ${precmd_functions:#_bn_precmd})
