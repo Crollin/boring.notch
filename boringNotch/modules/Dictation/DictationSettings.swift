@@ -11,6 +11,7 @@ struct DictationSettings: View {
     @Default(.dictationLocale) private var locale
     @Default(.dictationHold) private var hold
     @Default(.dictationSubstitutions) private var substitutions
+    @Default(.dictationSuggestions) private var suggestions
     @Default(.dictationHistory) private var history
     @Default(.dictationKeepHistory) private var keepHistory
     @State private var query = ""
@@ -32,7 +33,7 @@ struct DictationSettings: View {
             } header: {
                 Text("Dictée")
             } footer: {
-                Text("Transcription sur le Mac (modèle Apple, téléchargé à la première utilisation de chaque langue). Le texte est collé dans l'app active. Tu peux dicter la ponctuation : « virgule », « point d'interrogation », « à la ligne ».")
+                Text("Transcription sur le Mac (modèle Apple, téléchargé à la première utilisation de chaque langue). Le texte est collé dans l'app active. Tu peux dicter la ponctuation : « virgule », « point d'interrogation », « à la ligne ». Avec un texte sélectionné, une consigne (« raccourcis », « traduis en anglais », « reformule plus formel ») le réécrit ; sinon ce que tu dictes le remplace.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -54,6 +55,28 @@ struct DictationSettings: View {
             } footer: {
                 Text("Une règle par ligne : « avant => après ». Mot entier, sans tenir compte des majuscules. Ex. : « boring notch => Boring Notch ».")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+
+            if !suggestions.isEmpty {
+                Section {
+                    ForEach(suggestions, id: \.self) { rule in
+                        HStack {
+                            Text(rule).font(.system(.body, design: .monospaced))
+                            Spacer()
+                            Button("Accepter") {
+                                substitutions += (substitutions.isEmpty || substitutions.hasSuffix("\n") ? "" : "\n") + rule + "\n"
+                                suggestions.removeAll { $0 == rule }
+                            }
+                            Button("Ignorer", role: .destructive) { suggestions.removeAll { $0 == rule } }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                } header: {
+                    Text("Suggestions apprises")
+                } footer: {
+                    Text("Sélectionne un mot mal transcrit, puis redicte-le : la correction apparaît ici. Les mots acceptés guident aussi la reconnaissance.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             Section {

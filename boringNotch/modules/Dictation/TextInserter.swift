@@ -9,6 +9,18 @@
 import AppKit
 
 enum TextInserter {
+    /// Texte sélectionné dans l'app active (Accessibilité). nil si rien, champ protégé ou accès refusé.
+    static func selectedText() -> String? {
+        guard AXIsProcessTrusted() else { return nil }
+        var el: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &el) == .success,
+              let el else { return nil }
+        var sel: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el as! AXUIElement, kAXSelectedTextAttribute as CFString, &sel) == .success,
+              let s = sel as? String, !s.isEmpty else { return nil }
+        return s
+    }
+
     @MainActor static func insert(_ text: String) async {
         let pb = NSPasteboard.general
         let previous = pb.string(forType: .string) // ponytail: seul le texte est restauré, pas images/fichiers

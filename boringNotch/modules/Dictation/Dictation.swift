@@ -44,6 +44,7 @@ final class Dictation: ObservableObject {
     private var warm: LanguageModelSession?   // préchauffée pendant que tu parles
     private var flashTask: Task<Void, Never>?
     private var limitTask: Task<Void, Never>?
+    private var selection: String?            // texte sélectionné au déclenchement : remplacé, ou transformé par une commande
     private var generation = 0                // invalide un start() resté en attente si l'utilisateur a relâché
 
     // MARK: raccourci
@@ -66,6 +67,7 @@ final class Dictation: ObservableObject {
         guard phase == .idle else { return }
         phase = .listening; partial = ""; error = nil; justDone = false
         startedAt = .now; meter.reset(); chunks = []; raws = []
+        selection = TextInserter.selectedText().map { String($0.prefix(4000)) }
         generation += 1
         let g = generation
         let stale = { [self] in generation != g || phase != .listening }
@@ -82,6 +84,9 @@ final class Dictation: ObservableObject {
 
             // whileInUse : le modèle de reconnaissance est libéré dès la fin de la dictée (pas de RAM résiduelle).
             let analyzer = SpeechAnalyzer(modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .whileInUse))
+            // Vocabulaire perso (cibles des substitutions) : la reconnaissance les privilégie.
+            let vocab = TextCleanup.vocabulary()
+            if !vocab.isEmpty { let ctx = AnalysisContext(); ctx.contextualStrings[.general] = vocab; try? await analyzer.setContext(ctx) }
             guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else { throw DictationError.unsupported }
             if stale() { return }
             let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
@@ -141,7 +146,19 @@ final class Dictation: ObservableObject {
         }
         guard generation == g else { return }
         // Délai dépassé ou erreur : on colle ce qui a été entendu (texte partiel, règles seulement) plutôt que rien.
-        let text = TextCleanup.finish(parts ?? [TextCleanup.spoken(TextCleanup.removeFillers(partial), locale: Defaults[.dictationLocale])])
+        var text = TextCleanup.finish(parts ?? [TextCleanup.spoken(TextCleanup.removeFillers(partial), locale: Defaults[.dictationLocale])])
+        let sel = selection; selection = nil
+        if let sel, !text.isEmpty {
+            if TextCleanup.isCommand(text) {
+                // Commande vocale sur la sélection (« raccourcis », « traduis en anglais »…) : le modèle réécrit la sélection.
+                let out = await TextCleanup.command(text, on: sel)
+                guard generation == g else { return }
+                guard let out else { await fail(DictationError.commandFailed); return }
+                text = out
+            } else {
+                TextCleanup.learn(from: sel, to: text) // mot sélectionné puis redicté → règle suggérée
+            }
+        }
         if !text.isEmpty {
             await TextInserter.insert(text)
             if Defaults[.dictationKeepHistory] {
@@ -160,7 +177,7 @@ final class Dictation: ObservableObject {
         generation += 1; limitTask?.cancel(); limitTask = nil
         engine.stop(); engine.inputNode.removeTap(onBus: 0)
         input?.finish(); input = nil; results?.cancel(); results = nil
-        chunks.forEach { $0.cancel() }; chunks = []; raws = []; warm = nil
+        chunks.forEach { $0.cancel() }; chunks = []; raws = []; warm = nil; selection = nil
         let a = analyzer; analyzer = nil
         Task { await a?.cancelAndFinishNow() }
         phase = .idle; partial = ""
@@ -176,7 +193,7 @@ final class Dictation: ObservableObject {
         generation += 1; limitTask?.cancel(); limitTask = nil
         engine.stop(); engine.inputNode.removeTap(onBus: 0)
         input?.finish(); input = nil; results?.cancel(); results = nil
-        chunks.forEach { $0.cancel() }; chunks = []; raws = []; warm = nil
+        chunks.forEach { $0.cancel() }; chunks = []; raws = []; warm = nil; selection = nil
         await analyzer?.cancelAndFinishNow(); analyzer = nil
         error = (e as? DictationError)?.message ?? e.localizedDescription
         phase = .idle; partial = ""
@@ -219,11 +236,12 @@ final class Dictation: ObservableObject {
 }
 
 enum DictationError: Error {
-    case micDenied, unsupported
+    case micDenied, unsupported, commandFailed
     var message: String {
         switch self {
         case .micDenied: "Accès au micro refusé (Réglages Système > Confidentialité)"
         case .unsupported: "Langue non prise en charge par la dictée Apple"
+        case .commandFailed: "Commande impossible (modèle indisponible ou trop lent)"
         }
     }
 }

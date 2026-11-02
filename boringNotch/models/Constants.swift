@@ -179,6 +179,7 @@ extension Defaults.Keys {
     static let dictationHistory = Key<[DictationEntry]>("dictationHistory", default: [])   // ponytail: 200 entrées max dans UserDefaults ; fichier JSON si ça grossit
     static let dictationCleanup = Key<Bool>("dictationCleanup", default: true)
     static let dictationSubstitutions = Key<String>("dictationSubstitutions", default: "")
+    static let dictationSuggestions = Key<[String]>("dictationSuggestions", default: [])   // règles « avant => après » apprises, à valider
     static let timerShortcutMinutes = Key<Int>("timerShortcutMinutes", default: 25)
     static let activityCommands = Key<Bool>("activityCommands", default: true)
     static let activityDisks = Key<Bool>("activityDisks", default: true)
