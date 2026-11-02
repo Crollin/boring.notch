@@ -1251,10 +1251,7 @@ struct Appearance: View {
                     }
                 }
             } header: {
-                HStack {
-                    Text("Custom music live activity animation")
-                    customBadge(text: "Coming soon")
-                }
+                Text("Custom music live activity animation")
             }
 
             Section {
