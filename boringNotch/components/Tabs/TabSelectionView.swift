@@ -49,6 +49,7 @@ struct TabSelectionView: View {
             }
         }
         .clipShape(Capsule())
+        .padding(.trailing, 8)   // un peu d'air avant l'encoche
     }
 }
 

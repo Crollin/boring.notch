@@ -92,9 +92,17 @@ final class ClipboardStore: ObservableObject {
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
             return .files(urls)
         }
-        if let s = pb.string(forType: .string), !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .text(s) }
+        if let s = pb.string(forType: .string), !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .text(repaired(s)) }
         if let img = NSImage(pasteboard: pb) { return .image(img) }
         return nil
+    }
+
+    /// Texte UTF-8 lu comme du Mac Roman (« consid√®re », « ‚Äî ») : c'est ce que produit `pbcopy` lancé sans
+    /// locale UTF-8. On le recode ; un texte normal ne redevient presque jamais de l'UTF-8 valide et reste tel quel.
+    static func repaired(_ s: String) -> String {
+        guard s.unicodeScalars.contains(where: { $0.value > 0x7F }),
+              let bytes = s.data(using: .macOSRoman), let fixed = String(data: bytes, encoding: .utf8) else { return s }
+        return fixed
     }
 
     /// Remet la copie dans le presse-papiers ; `paste` simule ⌘V dans l'app au premier plan
