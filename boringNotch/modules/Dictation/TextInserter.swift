@@ -10,8 +10,26 @@ import AppKit
 
 enum TextInserter {
     /// Texte sélectionné dans l'app active (Accessibilité). nil si rien, champ protégé ou accès refusé.
-    static func selectedText() -> String? {
+    @MainActor static func selectedText() async -> String? {
         guard AXIsProcessTrusted() else { return nil }
+        if let s = axSelectedText() { return s }
+        // Apps web (Zoho Mail, Gmail…) n'exposent pas la sélection : on copie, on lit, on restaure le presse-papiers.
+        let pb = NSPasteboard.general
+        let previous = pb.string(forType: .string), count = pb.changeCount
+        let src = CGEventSource(stateID: .privateState) // ignore Option encore enfoncée du raccourci
+        for down in [true, false] {
+            let e = CGEvent(keyboardEventSource: src, virtualKey: 0x08, keyDown: down) // C
+            e?.flags = .maskCommand
+            e?.post(tap: .cghidEventTap)
+        }
+        for _ in 0..<8 where pb.changeCount == count { try? await Task.sleep(for: .milliseconds(25)) }
+        guard pb.changeCount != count, let copied = pb.string(forType: .string), !copied.isEmpty else { return nil }
+        pb.clearContents()
+        if let previous { pb.setString(previous, forType: .string) }
+        return copied
+    }
+
+    private static func axSelectedText() -> String? {
         var el: CFTypeRef?
         guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &el) == .success,
               let el else { return nil }

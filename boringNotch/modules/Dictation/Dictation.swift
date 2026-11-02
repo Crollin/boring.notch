@@ -67,10 +67,11 @@ final class Dictation: ObservableObject {
         guard phase == .idle else { return }
         phase = .listening; partial = ""; error = nil; justDone = false
         startedAt = .now; meter.reset(); chunks = []; raws = []
-        selection = TextInserter.selectedText().map { String($0.prefix(4000)) }
         generation += 1
         let g = generation
         let stale = { [self] in generation != g || phase != .listening }
+        selection = await TextInserter.selectedText().map { String($0.prefix(4000)) }
+        if stale() { return }
         if Defaults[.dictationCleanup] { warm = TextCleanup.warmSession() } // charge le modèle pendant la prise de parole
         do {
             guard await AVCaptureDevice.requestAccess(for: .audio) else { throw DictationError.micDenied }
