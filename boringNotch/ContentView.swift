@@ -65,8 +65,8 @@ struct ContentView: View {
             && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
         {
             chinWidth = 640
-        } else if coordinator.expandingView.type == .headset && coordinator.expandingView.show && vm.notchState == .closed {
-            chinWidth = vm.closedNotchSize.width + 10 + 2 * HeadsetConnectedView.sideWidth
+        } else if coordinator.expandingView.type == .device && coordinator.expandingView.show && vm.notchState == .closed {
+            chinWidth = vm.closedNotchSize.width + 10 + 2 * DeviceEventView.sideWidth
         } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music)
             && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle)
             && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed
@@ -326,8 +326,8 @@ struct ContentView: View {
                             .frame(width: 76, alignment: .trailing)
                         }
                         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
-                      } else if coordinator.expandingView.type == .headset && coordinator.expandingView.show && vm.notchState == .closed {
-                          HeadsetConnectedView(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight)
+                      } else if coordinator.expandingView.type == .device && coordinator.expandingView.show && vm.notchState == .closed {
+                          DeviceEventView(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight)
                       } else if coordinator.sneakPeek.show && Defaults[.inlineHUD] && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
                           InlineHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon, hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)

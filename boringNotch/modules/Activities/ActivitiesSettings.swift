@@ -84,10 +84,12 @@ struct ActivitiesSettings: View {
             Section {
                 Defaults.Toggle("Disque externe branché (bouton éjecter)", key: .activityDisks)
                 Defaults.Toggle("Casque Bluetooth connecté", key: .activityHeadsets)
+                Defaults.Toggle("Batterie faible d'un accessoire Bluetooth", key: .activityLowBattery)
+                    .onChange { on in if on { BluetoothBattery.shared.start() } }
             } header: {
                 Text("Appareils")
             } footer: {
-                note("À la connexion d'un casque, la notch s'élargit quelques secondes avec son nom.")
+                note("À la connexion d'un casque, la notch s'élargit quelques secondes avec son nom. Batterie faible : alerte à 15 % puis à 5 % (clavier, souris… s'ils exposent leur batterie en Bluetooth).")
             }
 
             Section {

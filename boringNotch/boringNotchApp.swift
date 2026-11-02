@@ -290,6 +290,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         WeatherStore.shared.start()
         DownloadMonitor.shared.start()
         ActivityEvents.shared.start()
+        BluetoothBattery.shared.start()
 
         NotificationCenter.default.addObserver(
             self,

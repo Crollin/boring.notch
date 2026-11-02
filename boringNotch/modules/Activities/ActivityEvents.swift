@@ -3,7 +3,7 @@
 //  boringNotch
 //
 //  Activités éphémères (quelques secondes) : commande terminal terminée, disque externe monté.
-//  Casque Bluetooth connecté : la notch fermée s'élargit (HeadsetConnectedView), comme pour la charge.
+//  Casque connecté / déconnecté, batterie faible d'un accessoire : la notch fermée s'élargit (DeviceEventView).
 //  Une seule à la fois : la plus récente remplace la précédente.
 //
 
@@ -22,8 +22,19 @@ final class ActivityEvents: ObservableObject {
     }
 
     @Published private(set) var event: Event?
-    /// Dernier casque connecté ou déconnecté, affiché pendant l'élargissement de la notch.
-    @Published private(set) var headset: (name: String, device: AudioObjectID, connected: Bool)?
+    /// Événement d'appareil affiché pendant l'élargissement de la notch (DeviceEventView).
+    struct DeviceEvent: Hashable {
+        enum Kind: Hashable { case connected, disconnected, lowBattery(Int) }
+        let name: String
+        let kind: Kind
+    }
+    @Published private(set) var deviceEvent: DeviceEvent?
+
+    func showDevice(_ e: DeviceEvent) {
+        deviceEvent = e
+        // value : 0 = déconnexion (élargissement plus court, cf. BoringViewCoordinator).
+        BoringViewCoordinator.shared.toggleExpandingView(status: true, type: .device, value: e.kind == .disconnected ? 0 : 1)
+    }
     private var expires = Date.distantPast
     /// Casques présents et leur nom : à la déconnexion, CoreAudio ne connaît déjà plus le périphérique.
     private var knownHeadsets: [AudioObjectID: String] = [:]
@@ -88,13 +99,10 @@ final class ActivityEvents: ObservableObject {
         let removed = knownHeadsets.first { now[$0.key] == nil }
         knownHeadsets = now
         guard Defaults[.activityHeadsets] else { return }
-        // value : 1 connecté, 0 déconnecté (élargissement plus court, cf. BoringViewCoordinator).
         if let dev = added {
-            headset = (now[dev] ?? "Casque", dev, true)
-            BoringViewCoordinator.shared.toggleExpandingView(status: true, type: .headset, value: 1)
-        } else if let (dev, name) = removed {
-            headset = (name, dev, false)
-            BoringViewCoordinator.shared.toggleExpandingView(status: true, type: .headset, value: 0)
+            showDevice(.init(name: now[dev] ?? "Casque", kind: .connected))
+        } else if let (_, name) = removed {
+            showDevice(.init(name: name, kind: .disconnected))
         }
     }
 

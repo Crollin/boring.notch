@@ -18,7 +18,7 @@ enum SneakContentType {
     case mic
     case battery
     case download
-    case headset
+    case device
 }
 
 struct sneakPeek {
@@ -282,7 +282,7 @@ class BoringViewCoordinator: ObservableObject {
         didSet {
             if expandingView.show {
                 expandingViewTask?.cancel()
-                let shortLived = expandingView.type == .download || (expandingView.type == .headset && expandingView.value == 0)
+                let shortLived = expandingView.type == .download || (expandingView.type == .device && expandingView.value == 0)
                 let duration: TimeInterval = shortLived ? 2 : 3
                 let currentType = expandingView.type
                 expandingViewTask = Task { [weak self] in
