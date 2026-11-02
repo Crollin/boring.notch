@@ -29,7 +29,10 @@ final class PrivacyMonitor: ObservableObject {
     }
 
     private func poll() {
-        let m = Defaults[.activityMic] && AudioHardware.micInUse
+        // Si seule cette app écoute (dictée), la pastille de dictée prend le relais.
+        let ids = AudioHardware.micApps
+        let onlyUs = !ids.isEmpty && ids.allSatisfy { $0 == Bundle.main.bundleIdentifier }
+        let m = Defaults[.activityMic] && AudioHardware.micInUse && !onlyUs
         // Le miroir de la notch utilise la caméra : ce n'est pas un usage à signaler.
         let c = Defaults[.activityCamera] && !WebcamManager.shared.isSessionRunning && Self.cameraInUse
         if (m || c) && since == nil { since = .now }

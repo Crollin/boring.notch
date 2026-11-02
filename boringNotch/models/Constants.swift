@@ -171,6 +171,13 @@ extension Defaults.Keys {
     static let activityDownloads = Key<Bool>("activityDownloads", default: true)
     static let downloadsToShelf = Key<Bool>("downloadsToShelf", default: true)
     static let activityStayAwake = Key<Bool>("activityStayAwake", default: true)
+    static let activityDictation = Key<Bool>("activityDictation", default: true)
+    static let dictationLocale = Key<String>("dictationLocale", default: "fr-FR")
+    static let dictationHold = Key<Bool>("dictationHold", default: true)          // true = maintenir, false = basculer
+    static let dictationKeepHistory = Key<Bool>("dictationKeepHistory", default: true)
+    static let dictationHistory = Key<[DictationEntry]>("dictationHistory", default: [])   // ponytail: 200 entrées max dans UserDefaults ; fichier JSON si ça grossit
+    static let dictationCleanup = Key<Bool>("dictationCleanup", default: true)
+    static let dictationSubstitutions = Key<String>("dictationSubstitutions", default: "")
     static let activityCommands = Key<Bool>("activityCommands", default: true)
     static let activityDisks = Key<Bool>("activityDisks", default: true)
     static let activityHeadsets = Key<Bool>("activityHeadsets", default: true)
