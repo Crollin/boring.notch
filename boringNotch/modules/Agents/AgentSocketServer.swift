@@ -57,7 +57,10 @@ final class AgentSocketServer {
                 close(client)
             } : nil
             if reply == nil { close(client) }
-            Task { @MainActor in AgentStore.shared.apply(env, reply: reply) }
+            Task { @MainActor in
+                if env.kind == "command" { ActivityEvents.shared.commandFinished(env) }
+                else { AgentStore.shared.apply(env, reply: reply) }
+            }
         }
     }
 }

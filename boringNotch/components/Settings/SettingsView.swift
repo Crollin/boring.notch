@@ -39,6 +39,9 @@ struct SettingsView: View {
                 NavigationLink(value: "Calendar") {
                     Label("Calendar", systemImage: "calendar")
                 }
+                NavigationLink(value: "Activities") {
+                    Label("Activités", systemImage: "capsule.portrait.tophalf.filled")
+                }
                 NavigationLink(value: "HUD") {
                     Label("HUDs", systemImage: "dial.medium.fill")
                 }
@@ -79,6 +82,8 @@ struct SettingsView: View {
                     Media()
                 case "Calendar":
                     CalendarSettings()
+                case "Activities":
+                    ActivitiesSettings()
                 case "HUD":
                     HUD()
                 case "Battery":
@@ -1222,7 +1227,6 @@ struct Appearance: View {
                     "Use music visualizer spectrogram",
                     isOn: $useMusicVisualizer.animation()
                 )
-                .disabled(true)
                 if !useMusicVisualizer {
                     if customVisualizers.count > 0 {
                         Picker(
@@ -1247,10 +1251,7 @@ struct Appearance: View {
                     }
                 }
             } header: {
-                HStack {
-                    Text("Custom music live activity animation")
-                    customBadge(text: "Coming soon")
-                }
+                Text("Custom music live activity animation")
             }
 
             Section {

@@ -78,6 +78,10 @@ struct AgentEnvelope: Decodable {
         var tool_use_id: String?
         var tool_input: ToolInput?
         var rate_limits: Limits?
+        // Commande terminal terminée (scripts/cmd-hook.zsh, kind "command").
+        var command: String?
+        var exit_code: Int?
+        var duration: Double?
     }
     struct ToolInput: Decodable {
         var file_path: String?
