@@ -474,7 +474,7 @@ private struct AgentBubble: View {
     @State private var pulse = false
 
     private var tint: Color { kind == .attention ? .red : kind == .idle ? .green : kind == .reply ? .blue : .orange }
-    private var diameter: CGFloat { max(height - 4, 20) * (kind == .idle ? 0.78 : 1) }
+    private var diameter: CGFloat { max(height - 8, 18) * (kind == .idle ? 0.78 : 1) }
 
     var body: some View {
         ZStack {
