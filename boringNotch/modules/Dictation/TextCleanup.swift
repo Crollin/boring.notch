@@ -68,6 +68,7 @@ enum TextCleanup {
 
     /// Ponctuation dictée : « virgule », « point d'interrogation », « à la ligne »… (mots sans ambiguïté seulement).
     static func spoken(_ text: String, locale: String) -> String {
+        let text = collapseSpelling(text)
         let rules: [(String, String)] = locale.hasPrefix("en")
             ? [("question mark", "?"), ("exclamation (?:mark|point)", "!"), ("semicolon", ";"), ("comma", ","),
                ("new paragraph", "\n\n"), ("new line", "\n")]
@@ -83,6 +84,18 @@ enum TextCleanup {
         // La transcription ajoute parfois son propre signe juste après : « ?. » → « ? ».
         out = out.replacingOccurrences(of: "([?!;,])\\s*[.,]", with: "$1", options: .regularExpression)
         return out.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Lettres épelées : « T. A. L. S, C, A, L. E » → « TALSCALE » (3 majuscules isolées ou plus). Un point final reste.
+    static func collapseSpelling(_ text: String) -> String {
+        guard let re = try? NSRegularExpression(pattern: "(?<![\\p{L}\\p{N}])\\p{Lu}(?:[.,]?\\s*\\p{Lu}(?![\\p{L}\\p{N}])){2,}[.,]?(?![\\p{L}\\p{N}])") else { return text }
+        var out = text
+        for m in re.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            guard let r = Range(m.range, in: out) else { continue }
+            let chunk = String(out[r])
+            out.replaceSubrange(r, with: chunk.filter(\.isLetter) + (chunk.hasSuffix(".") ? "." : ""))
+        }
+        return out
     }
 
     /// Une règle par ligne : `avant => après` (insensible à la casse, mot entier).
@@ -136,7 +149,7 @@ enum TextCleanup {
     @discardableResult
     static func learn(from old: String, to new: String) -> String? {
         let trim = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-        let a = old.trimmingCharacters(in: trim), b = new.trimmingCharacters(in: trim)
+        let a = collapseSpelling(old).trimmingCharacters(in: trim), b = new.trimmingCharacters(in: trim)
         func words(_ s: String) -> Int { s.split(whereSeparator: \.isWhitespace).count }
         guard !a.isEmpty, !b.isEmpty, a != b, words(a) <= 3, words(b) <= 3, a.count <= 40, b.count <= 40,
               !a.contains("=>"), !b.contains("=>") else { return nil }
