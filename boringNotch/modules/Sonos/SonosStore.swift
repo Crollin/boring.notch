@@ -20,6 +20,7 @@ final class SonosStore: ObservableObject {
     @Published private(set) var activeGroup: SonosGroup?
     @Published private(set) var groupVolume: Int = 0
     @Published private(set) var roomVolumes: [String: Int] = [:]
+    @Published private(set) var isMuted = false
 
     var isActive: Bool { activeGroup != nil }
     var label: String { activeGroup.map { SonosLogic.label(for: $0, rooms: rooms) } ?? "" }
@@ -103,6 +104,7 @@ final class SonosStore: ObservableObject {
         // Ne pas écraser un réglage local tout juste envoyé (curseur qui saute).
         guard Date().timeIntervalSince(lastLocalVolumeChange) > 2, let coord = ip(of: group.coordinatorID) else { return }
         let v = try? await client.groupVolume(coordinator: coord)
+        let muted = try? await client.groupMute(coordinator: coord)
         var vols: [String: Int] = [:]
         if group.memberIDs.count > 1 {
             for id in group.memberIDs {
@@ -111,6 +113,7 @@ final class SonosStore: ObservableObject {
         }
         guard gen == generation, !busy, Date().timeIntervalSince(lastLocalVolumeChange) > 2 else { return }
         if let v { groupVolume = v }
+        if let muted { isMuted = muted }
         roomVolumes = vols
     }
 
@@ -227,6 +230,7 @@ final class SonosStore: ObservableObject {
     func toggleMute() async {
         guard let group = activeGroup, let h = ip(of: group.coordinatorID),
               let muted = try? await client.groupMute(coordinator: h) else { return }
+        isMuted = !muted
         try? await client.setGroupMute(coordinator: h, !muted)
     }
 
