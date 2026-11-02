@@ -698,6 +698,8 @@ struct Media: View {
                     .foregroundStyle(.secondary)
             }
 
+            SpotifyLikeSettings()
+
             Section {
                 Defaults.Toggle("Contrôle Sonos", key: .enableSonos)
             } header: {
@@ -1812,4 +1814,48 @@ func warningBadge(_ text: String, _ description: String) -> some View {
 
 #Preview {
     HUD()
+}
+
+/// Réglage du cœur Spotify (Web API, OAuth PKCE).
+private struct SpotifyLikeSettings: View {
+    @ObservedObject private var api = SpotifyWebAPI.shared
+    @Default(.spotifyClientID) private var clientID
+
+    var body: some View {
+        Section {
+            TextField("Client ID", text: $clientID)
+                .disabled(api.isConnected)
+            LabeledContent("Redirect URI") {
+                HStack {
+                    Text(SpotifyWebAPI.redirectURI).textSelection(.enabled).foregroundStyle(.secondary)
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(SpotifyWebAPI.redirectURI, forType: .string)
+                    } label: { Image(systemName: "doc.on.doc") }
+                    .buttonStyle(.borderless)
+                }
+            }
+            HStack {
+                Label(api.isConnected ? "Connecté" : "Non connecté",
+                      systemImage: api.isConnected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(api.isConnected ? .green : .secondary)
+                Spacer()
+                if api.isConnected {
+                    Button("Déconnecter") { api.disconnect() }
+                } else {
+                    Button("Se connecter à Spotify") { api.connect() }
+                        .disabled(clientID.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            if let err = api.lastError {
+                Text(err).font(.caption).foregroundStyle(.red).lineLimit(3)
+            }
+        } header: {
+            Text("Spotify — titres likés")
+        } footer: {
+            Text("Pour activer le cœur : créez une app sur developer.spotify.com (Web API), ajoutez la Redirect URI ci-dessus, collez son Client ID puis connectez-vous.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
 }

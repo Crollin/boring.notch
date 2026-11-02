@@ -150,6 +150,9 @@ extension Defaults.Keys {
     static let selectedDownloadIndicatorStyle = Key<DownloadIndicatorStyle>("selectedDownloadIndicatorStyle", default: DownloadIndicatorStyle.progress)
     static let selectedDownloadIconStyle = Key<DownloadIconStyle>("selectedDownloadIconStyle", default: DownloadIconStyle.onlyAppIcon)
     
+    // MARK: Spotify
+    static let spotifyClientID = Key<String>("spotifyClientID", default: "")
+
     // MARK: Sonos
     static let enableSonos = Key<Bool>("enableSonos", default: true)
     static let sonosFavorites = Key<[SonosFavorite]>("sonosFavorites", default: [])
