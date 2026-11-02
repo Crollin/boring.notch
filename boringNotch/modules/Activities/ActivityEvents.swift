@@ -25,9 +25,9 @@ final class ActivityEvents: ObservableObject {
     private var expires = Date.distantPast
     private var knownHeadsets: Set<AudioObjectID> = []
 
-    private func show(_ e: Event, for seconds: TimeInterval) {
+    private func show(_ e: Event) {
         event = e
-        expires = Date().addingTimeInterval(seconds)
+        expires = Date().addingTimeInterval(TimeInterval(Defaults[.activityEventSeconds]))
     }
 
     func start() {
@@ -57,9 +57,11 @@ final class ActivityEvents: ObservableObject {
     func commandFinished(_ env: AgentEnvelope) {
         guard Defaults[.activityCommands], let cmd = env.payload.command else { return }
         let app = env.app.flatMap { $0.isEmpty ? nil : $0 }
-        if let app, NSWorkspace.shared.frontmostApplication?.bundleIdentifier == app { return }
+        // Le hook envoie dès 3 s (BN_MIN_SECONDS) ; le seuil réel se règle ici.
+        guard (env.payload.duration ?? 0) >= Double(Defaults[.commandMinSeconds]) else { return }
+        if !Defaults[.commandWhenFrontmost], let app, NSWorkspace.shared.frontmostApplication?.bundleIdentifier == app { return }
         let name = cmd.split(separator: " ").first.map(String.init) ?? cmd
-        show(.command(name: name, ok: env.payload.exit_code == 0, duration: env.payload.duration ?? 0, app: app), for: 6)
+        show(.command(name: name, ok: env.payload.exit_code == 0, duration: env.payload.duration ?? 0, app: app))
     }
 
     private func mounted(_ url: URL) {
@@ -67,7 +69,7 @@ final class ActivityEvents: ObservableObject {
               let v = try? url.resourceValues(forKeys: [.volumeIsRemovableKey, .volumeIsEjectableKey, .volumeIsLocalKey, .volumeLocalizedNameKey]),
               v.volumeIsLocal != false, v.volumeIsRemovable == true || v.volumeIsEjectable == true
         else { return }
-        show(.disk(name: v.volumeLocalizedName ?? url.lastPathComponent, url: url), for: 8)
+        show(.disk(name: v.volumeLocalizedName ?? url.lastPathComponent, url: url))
     }
 
     /// Sorties audio Bluetooth (un casque expose une entrée et une sortie : on ne garde que la sortie).
@@ -81,7 +83,7 @@ final class ActivityEvents: ObservableObject {
         knownHeadsets = now
         if case .headset(_, let d)? = event, !now.contains(d) { event = nil }
         guard Defaults[.activityHeadsets], let dev = added.first else { return }
-        show(.headset(name: AudioHardware.string(dev, kAudioObjectPropertyName) ?? "Casque", device: dev), for: 5)
+        show(.headset(name: AudioHardware.string(dev, kAudioObjectPropertyName) ?? "Casque", device: dev))
     }
 
     // MARK: Pastille

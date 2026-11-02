@@ -26,6 +26,7 @@ struct ActivitySlots: View {
     @ObservedObject private var awake = StayAwake.shared
     @ObservedObject private var events = ActivityEvents.shared
     @Default(.activityAgents) private var showAgents
+    @Default(.activityMaxPills) private var maxPills
 
     // ponytail: tout est recalculé chaque seconde (durées, expirations) ; un tick par source si ça coûte un jour.
     private func items(_ now: Date) -> [Activity] {
@@ -42,7 +43,7 @@ struct ActivitySlots: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            let shown = Array(items(ctx.date).prefix(2))
+            let shown = Array(items(ctx.date).prefix(maxPills))
             HStack(spacing: 0) {
                 HStack { Spacer(minLength: 0); slot(shown.first, anchor: .trailing) }
                     .frame(maxWidth: .infinity)

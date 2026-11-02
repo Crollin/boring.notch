@@ -90,7 +90,7 @@ final class DownloadMonitor: ObservableObject {
                 }
             ))
         }
-        if let finished, Date().timeIntervalSince(finishedAt) < 4 {
+        if let finished, Date().timeIntervalSince(finishedAt) < TimeInterval(Defaults[.activityEventSeconds]) {
             return Activity(id: "download-done", priority: 60, view: AnyView(
                 ActivityPill(height: height, help: finished.lastPathComponent,
                              action: { NSWorkspace.shared.activateFileViewerSelecting([finished]) }) {

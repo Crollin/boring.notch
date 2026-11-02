@@ -29,10 +29,9 @@ final class PrivacyMonitor: ObservableObject {
     }
 
     private func poll() {
-        guard Defaults[.activityPrivacy] else { mic = false; camera = false; since = nil; return }
-        let m = AudioHardware.micInUse
+        let m = Defaults[.activityMic] && AudioHardware.micInUse
         // Le miroir de la notch utilise la caméra : ce n'est pas un usage à signaler.
-        let c = Self.cameraInUse && !WebcamManager.shared.isSessionRunning
+        let c = Defaults[.activityCamera] && !WebcamManager.shared.isSessionRunning && Self.cameraInUse
         if (m || c) && since == nil { since = .now }
         if !m && !c { since = nil }
         let apps = m ? Self.appNames(AudioHardware.micApps) : []

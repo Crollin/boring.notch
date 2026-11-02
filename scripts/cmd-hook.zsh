@@ -1,6 +1,6 @@
 # Boring Notch : signale la fin des commandes longues. À sourcer depuis ~/.zshrc :
 #   source ~/Projects/boring.notch/scripts/cmd-hook.zsh
-# Seuil : BN_MIN_SECONDS (30 par défaut). Échoue en silence si l'app est fermée ; l'envoi part en arrière-plan.
+# Seuil d'envoi : BN_MIN_SECONDS (3 s par défaut) ; le seuil d'affichage se règle dans l'app (Réglages > Activités). Échoue en silence si l'app est fermée ; l'envoi part en arrière-plan.
 
 zmodload zsh/datetime
 
@@ -11,7 +11,7 @@ _bn_precmd() {
   [[ -n $_bn_start ]] || return 0
   local d=$(( EPOCHREALTIME - _bn_start ))
   unset _bn_start
-  (( d >= ${BN_MIN_SECONDS:-30} )) && [[ -S $sock ]] || return 0
+  (( d >= ${BN_MIN_SECONDS:-3} )) && [[ -S $sock ]] || return 0
   # Échappement JSON minimal ; un caractère de contrôle restant fait juste ignorer l'événement.
   local cmd=${_bn_cmd//\\/\\\\}
   cmd=${cmd//\"/\\\"}
