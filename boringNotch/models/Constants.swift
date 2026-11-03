@@ -184,6 +184,7 @@ extension Defaults.Keys {
     static let activityCommands = Key<Bool>("activityCommands", default: true)
     static let activityDisks = Key<Bool>("activityDisks", default: true)
     static let activityHeadsets = Key<Bool>("activityHeadsets", default: true)
+    static let activityLowBattery = Key<Bool>("activityLowBattery", default: true)
 
     // MARK: HUD
     static let hudReplacement = Key<Bool>("hudReplacement", default: false)

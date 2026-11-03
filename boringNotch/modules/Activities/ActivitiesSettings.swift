@@ -31,7 +31,7 @@ struct ActivitiesSettings: View {
             } header: {
                 Text("Général")
             } footer: {
-                note("Les plus importantes d'abord : micro et caméra, agents, téléchargements, notifications, minuteur, rester éveillé. La durée s'applique aux commandes, disques, casques et téléchargements terminés.")
+                note("Les plus importantes d'abord : micro et caméra, agents, téléchargements, notifications, minuteur, rester éveillé. La durée s'applique aux commandes, disques et téléchargements terminés.")
             }
 
             Section {
@@ -84,10 +84,12 @@ struct ActivitiesSettings: View {
             Section {
                 Defaults.Toggle("Disque externe branché (bouton éjecter)", key: .activityDisks)
                 Defaults.Toggle("Casque Bluetooth connecté", key: .activityHeadsets)
+                Defaults.Toggle("Batterie faible d'un accessoire Bluetooth", key: .activityLowBattery)
+                    .onChange { on in if on { BluetoothBattery.shared.start() } }
             } header: {
                 Text("Appareils")
             } footer: {
-                note("Un clic sur la pastille du casque en fait la sortie audio.")
+                note("À la connexion d'un casque, la notch s'élargit quelques secondes avec son nom. Batterie faible : alerte à 15 % puis à 5 % (clavier, souris… s'ils exposent leur batterie en Bluetooth).")
             }
 
             Section {

@@ -1860,9 +1860,9 @@ private struct SpotifyLikeSettings: View {
                 Text(err).font(.caption).foregroundStyle(.red).lineLimit(3)
             }
         } header: {
-            Text("Spotify — titres likés")
+            Text("Spotify — titres likés et file d'attente")
         } footer: {
-            Text("Pour activer le cœur : créez une app sur developer.spotify.com (Web API), ajoutez la Redirect URI ci-dessus, collez son Client ID puis connectez-vous.")
+            Text("Pour activer le cœur et la file d'attente : créez une app sur developer.spotify.com (Web API), ajoutez la Redirect URI ci-dessus, collez son Client ID puis connectez-vous.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
