@@ -132,43 +132,204 @@ private struct ClipboardView: View {
     @ObservedObject private var store = ClipboardStore.shared
 
     var body: some View {
-        if store.clips.isEmpty {
-            Text("Rien de copié depuis le lancement de l'app")
-                .font(.system(size: 11)).foregroundStyle(.gray)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            TimelineView(.periodic(from: .now, by: 30)) { t in
-                VStack(spacing: 3) {
-                    ForEach(store.clips) { row($0, now: t.date) }
+        VStack(spacing: 7) {
+            if store.clips.isEmpty {
+                emptyState
+            } else {
+                GeometryReader { geometry in
+                    TimelineView(.periodic(from: .now, by: 30)) { timeline in
+                        HStack(spacing: 8) {
+                            ForEach(store.clips) { clip in
+                                ClipboardCard(clip: clip, now: timeline.date) {
+                                    store.use(clip, paste: NSEvent.modifierFlags.contains(.option))
+                                    vm.close()
+                                }
+                                // Give sparse histories more room without stretching one copy across the notch.
+                                .frame(width: cardWidth(in: geometry.size.width))
+                            }
+                        }
+                        .frame(maxHeight: .infinity)
+                    }
                 }
-                .frame(maxHeight: .infinity, alignment: .top)
             }
-            .padding(.horizontal, 6)
+            footer
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func cardWidth(in width: CGFloat) -> CGFloat {
+        let columns = max(3, store.clips.count)
+        return max(0, (width - CGFloat(columns - 1) * 8) / CGFloat(columns))
+    }
+
+    private var emptyState: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "doc.on.clipboard")
+                .font(.system(size: 25, weight: .light))
+                .foregroundStyle(Color.effectiveAccent)
+                .frame(width: 48, height: 48)
+                .background(Color.effectiveAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Vos prochaines copies, juste ici")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Copiez du texte, une image ou un fichier avec ⌘C.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 4) {
+            if store.clips.isEmpty {
+                Label("Historique en mémoire uniquement", systemImage: "lock")
+            } else {
+                Text("\(store.clips.count) / \(ClipboardStore.limit) copies récentes")
+                Spacer(minLength: 8)
+                Text("Clic : copier")
+                Text("·").padding(.horizontal, 3)
+                Text("⌥ clic : coller")
+            }
+        }
+        .font(.system(size: 10))
+        .foregroundStyle(.white.opacity(0.6))
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 2)
+    }
+}
+
+/// A copy is its own preview and hit target; the content never takes keyboard focus.
+private struct ClipboardCard: View {
+    let clip: Clip
+    let now: Date
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var link: URL? {
+        guard case .text(let text) = clip.content else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.contains(where: { $0.isWhitespace }),
+              let url = URL(string: trimmed),
+              ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+              url.host != nil else { return nil }
+        return url
+    }
+
+    private var kind: String {
+        switch clip.content {
+        case .text: link == nil ? "Texte" : "Lien"
+        case .image: "Image"
+        case .files(let files): files.count > 1 ? "Fichiers" : "Fichier"
         }
     }
 
-    private func row(_ clip: Clip, now: Date) -> some View {
-        Button {
-            store.use(clip, paste: NSEvent.modifierFlags.contains(.option))
-            vm.close()
-        } label: {
-            HStack(spacing: 9) {
-                if case .image(let i) = clip.content {
-                    Image(nsImage: i).resizable().scaledToFill().frame(width: 18, height: 18)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                } else {
-                    Image(systemName: clip.symbol).font(.system(size: 10)).foregroundStyle(.gray).frame(width: 18)
+    private var fullPreview: String {
+        if case .text(let text) = clip.content {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return clip.preview
+    }
+
+    private var tint: Color {
+        switch clip.content {
+        case .text: link == nil ? .white.opacity(0.7) : .cyan
+        case .image: Color(red: 0.78, green: 0.65, blue: 1)
+        case .files: .orange
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 4) {
+                    Image(systemName: link == nil ? clip.symbol : "link")
+                    Text(kind)
                 }
-                Text(clip.preview).font(.system(size: 11.5)).foregroundStyle(.white).lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 8)
-                Text(Self.age(now.timeIntervalSince(clip.date))).font(.system(size: 10).monospacedDigit()).foregroundStyle(.gray)
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(tint)
+
+                preview
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .clipped()
+
+                HStack(spacing: 2) {
+                    Text(Self.age(now.timeIntervalSince(clip.date)))
+                        .lineLimit(1)
+                        .monospacedDigit()
+                    Spacer(minLength: 0)
+                    Image(systemName: "doc.on.doc")
+                        .foregroundStyle(Color.effectiveAccent)
+                        .opacity(hovering ? 1 : 0)
+                }
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.6))
             }
-            .padding(.horizontal, 9).frame(height: 24)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(0.06)))
-            .contentShape(Rectangle())
+            .padding(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.white.opacity(hovering ? 0.11 : 0.065), in: RoundedRectangle(cornerRadius: 11))
+            .overlay {
+                RoundedRectangle(cornerRadius: 11)
+                    .strokeBorder(hovering ? Color.effectiveAccent.opacity(0.65) : .white.opacity(0.08))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain)
-        .help("Clic : copier · ⌥-clic : copier et coller")
+        .onHover { hovering = $0 }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
+        .help("\(String(fullPreview.prefix(1000)))\nClic : copier · ⌥-clic : copier et coller")
+        .accessibilityLabel("\(kind) : \(fullPreview)")
+        .accessibilityHint("Copier. Option-clic pour coller dans l’application active.")
+    }
+
+    @ViewBuilder private var preview: some View {
+        switch clip.content {
+        case .text(let text):
+            if let link {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(link.host ?? "")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .truncationMode(.middle)
+                    Text(link.path.isEmpty || link.path == "/" ? "Page web" : link.path)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.65))
+                        .lineLimit(2)
+                }
+            } else {
+                Text(String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(500)))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.95))
+                    .lineLimit(4)
+                    .multilineTextAlignment(.leading)
+            }
+        case .image(let image):
+            GeometryReader { geometry in
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .background(.white.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+            }
+        case .files(let files):
+            VStack(alignment: .leading, spacing: 4) {
+                Text(files.first?.lastPathComponent ?? "Fichier")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.95))
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                if files.count > 1 {
+                    Text("+ \(files.count - 1) autre\(files.count > 2 ? "s" : "")")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.65))
+                }
+            }
+        }
     }
 
     static func age(_ t: TimeInterval) -> String {
