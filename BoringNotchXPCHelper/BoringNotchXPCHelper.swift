@@ -124,6 +124,21 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
         reply(nil)
     }
 
+    @objc func openLogiDevicesJSON(with reply: @escaping (Data?) -> Void) {
+        let bin = "/Applications/OpenLogi.app/Contents/MacOS/openlogi"
+        guard FileManager.default.isExecutableFile(atPath: bin) else { return reply(nil) }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: bin)
+        p.arguments = ["api", "devices"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return reply(nil) }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        reply(data)
+    }
+
     @objc func setScreenBrightness(_ value: Float, with reply: @escaping (Bool) -> Void) {
         let clamped = max(0, min(1, value))
         if displayServicesSetBrightness(displayID: CGMainDisplayID(), value: clamped) {

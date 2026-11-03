@@ -291,6 +291,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DownloadMonitor.shared.start()
         ActivityEvents.shared.start()
         BluetoothBattery.shared.start()
+        LogiConnectionWatcher.shared.start()
 
         NotificationCenter.default.addObserver(
             self,

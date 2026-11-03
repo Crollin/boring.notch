@@ -27,6 +27,8 @@ final class ActivityEvents: ObservableObject {
         enum Kind: Hashable { case connected, disconnected, lowBattery(Int) }
         let name: String
         let kind: Kind
+        var battery: Int? = nil      // anneau de batterie à la connexion (OpenLogi)
+        var charging = false
     }
     @Published private(set) var deviceEvent: DeviceEvent?
 
