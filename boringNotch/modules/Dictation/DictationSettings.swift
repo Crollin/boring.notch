@@ -10,6 +10,8 @@ import SwiftUI
 struct DictationSettings: View {
     @Default(.dictationLocale) private var locale
     @Default(.dictationHold) private var hold
+    @Default(.dictationMic) private var mic
+    @State private var mics = Microphones.all()
     @Default(.dictationSubstitutions) private var substitutions
     @Default(.dictationSuggestions) private var suggestions
     @Default(.dictationHistory) private var history
@@ -29,11 +31,20 @@ struct DictationSettings: View {
                     Text("English (US)").tag("en-US")
                     Text("English (UK)").tag("en-GB")
                 }
+                Picker("Micro", selection: $mic) {
+                    Text("Automatique").tag("auto")
+                    Text("Micro du système").tag("system")
+                    Divider()
+                    ForEach(mics) { Text($0.name).tag($0.uid) }
+                    if !["auto", "system"].contains(mic), !mics.contains(where: { $0.uid == mic }) { Text("Micro absent").tag(mic) }
+                }
+                Text("Utilisé actuellement : \(Microphones.effective(mic)?.name ?? "aucun micro")")
+                    .font(.caption).foregroundStyle(.secondary)
                 Defaults.Toggle("Pastille autour de la notch", key: .activityDictation)
             } header: {
                 Text("Dictée")
             } footer: {
-                Text("Transcription sur le Mac (modèle Apple, téléchargé à la première utilisation de chaque langue). Le texte est collé dans l'app active. Tu peux dicter la ponctuation : « virgule », « point d'interrogation », « à la ligne ». Avec un texte sélectionné, une consigne (« raccourcis », « traduis en anglais », « reformule plus formel ») le réécrit ; sinon ce que tu dictes le remplace.")
+                Text("Micro : « Automatique » utilise le micro du Mac quand le système a choisi un casque ou des écouteurs Bluetooth (leur micro est de moindre qualité et bascule le casque en mode appel), et sinon le micro du système (casque USB, par exemple). Choisir un micro précis ne change pas le micro du système : musique et appels restent sur le casque.\n\nTranscription sur le Mac (modèle Apple, téléchargé à la première utilisation de chaque langue). Le texte est collé dans l'app active. Tu peux dicter la ponctuation : « virgule », « point d'interrogation », « à la ligne ». Avec un texte sélectionné, une consigne (« raccourcis », « traduis en anglais », « reformule plus formel ») le réécrit ; sinon ce que tu dictes le remplace.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -109,6 +120,7 @@ struct DictationSettings: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { mics = Microphones.all() }
         .navigationTitle("Dictée")
     }
 }

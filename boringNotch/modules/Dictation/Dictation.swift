@@ -22,6 +22,68 @@ final class LevelMeter: @unchecked Sendable {
     func reset() { lock.lock(); v = 0; lock.unlock() }
 }
 
+/// Audio du micro → format de l'analyseur. Tout ce qui arrive avant que l'analyseur soit prêt est gardé puis rejoué
+/// dans l'ordre : parler dès l'appui sur la touche ne perd plus le début. Écrit depuis le thread audio, d'où le verrou.
+@available(macOS 26.0, *)
+final class AudioFeed: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: [AVAudioPCMBuffer] = []
+    private var target: AVAudioFormat?
+    private var out: AsyncStream<AnalyzerInput>.Continuation?
+    private var converter: AVAudioConverter?
+
+    func reset() { lock.lock(); pending = []; target = nil; out = nil; converter = nil; lock.unlock() }
+
+    func push(_ b: AVAudioPCMBuffer) {
+        lock.lock(); defer { lock.unlock() }
+        if out != nil { convert(b) } else if let c = Self.copy(b) { pending.append(c) }
+    }
+
+    /// L'analyseur est prêt : rejoue ce qui a été entendu pendant la préparation, puis passe en direct. Renvoie le nombre de tampons rejoués.
+    @discardableResult
+    func attach(_ format: AVAudioFormat, _ cont: AsyncStream<AnalyzerInput>.Continuation) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        target = format; out = cont; converter = nil
+        let n = pending.count
+        pending.forEach(convert); pending = []
+        return n
+    }
+
+    /// Fin de l'entrée : vide le convertisseur (sinon les dernières ms de la dernière syllabe restent dedans).
+    func finish() {
+        lock.lock(); defer { lock.unlock() }
+        if let converter, let target, let out, let o = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: 4096) {
+            converter.convert(to: o, error: nil) { _, s in s.pointee = .endOfStream; return nil }
+            if o.frameLength > 0 { out.yield(AnalyzerInput(buffer: o)) }
+        }
+        out?.finish(); out = nil; pending = []; converter = nil
+    }
+
+    private func convert(_ b: AVAudioPCMBuffer) { // verrou déjà pris
+        guard let target, let out else { return }
+        // Le micro peut changer de format en route (casque Bluetooth qui bascule en mode appel) : nouveau convertisseur.
+        if converter == nil || converter?.inputFormat != b.format { converter = AVAudioConverter(from: b.format, to: target) }
+        guard let converter else { return }
+        let cap = AVAudioFrameCount(Double(b.frameLength) * target.sampleRate / b.format.sampleRate) + 32
+        guard let o = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: cap) else { return }
+        var fed = false
+        converter.convert(to: o, error: nil) { _, s in
+            if fed { s.pointee = .noDataNow; return nil }
+            fed = true; s.pointee = .haveData; return b
+        }
+        if o.frameLength > 0 { out.yield(AnalyzerInput(buffer: o)) }
+    }
+
+    // ponytail: copie float32 seulement (format du micro de l'engine) ; autre format = tampon ignoré.
+    private static func copy(_ b: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let s = b.floatChannelData, let c = AVAudioPCMBuffer(pcmFormat: b.format, frameCapacity: b.frameLength),
+              let d = c.floatChannelData else { return nil }
+        c.frameLength = b.frameLength
+        for ch in 0..<Int(b.format.channelCount) { d[ch].update(from: s[ch], count: Int(b.frameLength)) }
+        return c
+    }
+}
+
 @available(macOS 26.0, *)
 @MainActor
 final class Dictation: ObservableObject {
@@ -40,7 +102,10 @@ final class Dictation: ObservableObject {
 
     private let engine = AVAudioEngine()
     private var analyzer: SpeechAnalyzer?
-    private var input: AsyncStream<AnalyzerInput>.Continuation?
+    private let feed = AudioFeed()
+    private var startTask: Task<Void, Never>?        // préparation en cours : stop() l'attend au lieu de la jeter
+    private var configObserver: NSObjectProtocol?    // changement de micro / de format en cours de dictée
+    private var tail = ""                            // texte encore volatil (pas finalisé) : récupéré si la finalisation échoue
     private var results: Task<Void, Error>?
     private var chunks: [Task<String, Never>] = []
     private var raws: [String] = []
@@ -48,13 +113,14 @@ final class Dictation: ObservableObject {
     private var flashTask: Task<Void, Never>?
     private var limitTask: Task<Void, Never>?
     private var selection: String?            // texte sélectionné au déclenchement : remplacé, ou transformé par une commande
-    private var generation = 0                // invalide un start() resté en attente si l'utilisateur a relâché
+    private var generation = 0                // invalide un start() resté en attente après un abandon (cancel / erreur)
+    private let log = Logger(subsystem: "theboringteam.boringnotch", category: "dictation")
 
     // MARK: raccourci
 
     func keyDown() {
         switch (Defaults[.dictationHold], phase) {
-        case (_, .idle): Task { await start() }
+        case (_, .idle): startTask = Task { await start() }
         case (false, .listening): Task { await stop() }
         default: break
         }
@@ -68,23 +134,33 @@ final class Dictation: ObservableObject {
 
     private func start() async {
         guard phase == .idle else { return }
-        phase = .listening; partial = ""; error = nil; justDone = false
-        startedAt = .now; meter.reset(); chunks = []; raws = []
+        phase = .listening; partial = ""; tail = ""; error = nil; justDone = false
+        startedAt = .now; meter.reset(); chunks = []; raws = []; selection = nil
         generation += 1
         let g = generation
-        let stale = { [self] in generation != g || phase != .listening }
-        selection = await TextInserter.selectedText().map { String($0.prefix(4000)) }
-        if stale() { return }
-        if Defaults[.dictationCleanup] { warm = TextCleanup.warmSession() } // charge le modèle pendant la prise de parole
+        let stale = { [self] in generation != g } // seul un abandon invalide : relâcher la touche n'annule plus la préparation
         do {
             guard await AVCaptureDevice.requestAccess(for: .audio) else { throw DictationError.micDenied }
+            if stale() { return }
+            // Le micro écoute AVANT tout le reste : ce qui est dit pendant la préparation est gardé (AudioFeed) puis rejoué.
+            feed.reset()
+            let mic = Microphones.resolve(Defaults[.dictationMic])
+            try Self.startCapture(engine, feed, meter, mic)
+            configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.restartCapture() }
+            }
+            log.info("micro « \((mic ?? Microphones.systemDefault())?.name ?? "?", privacy: .public) » ouvert après \(Int(Date().timeIntervalSince(self.startedAt) * 1000)) ms")
+
+            selection = await TextInserter.selectedText().map { String($0.prefix(4000)) }
+            if stale() { return }
+            if Defaults[.dictationCleanup] { warm = TextCleanup.warmSession() } // charge le modèle pendant la prise de parole
 
             let wanted = Locale(identifier: Defaults[.dictationLocale])
             guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: wanted) else { throw DictationError.unsupported }
             let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults], attributeOptions: [])
             // Première utilisation : télécharge le modèle de la langue (géré par le système).
             if let req = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) { try await req.downloadAndInstall() }
-            if stale() { return } // relâché pendant le téléchargement : stop() a déjà tout remis à zéro
+            if stale() { return }
 
             // whileInUse : le modèle de reconnaissance est libéré dès la fin de la dictée (pas de RAM résiduelle).
             let analyzer = SpeechAnalyzer(modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .whileInUse))
@@ -92,31 +168,48 @@ final class Dictation: ObservableObject {
             let vocab = TextCleanup.vocabulary()
             if !vocab.isEmpty { let ctx = AnalysisContext(); ctx.contextualStrings[.general] = vocab; try? await analyzer.setContext(ctx) }
             guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else { throw DictationError.unsupported }
+            try? await analyzer.prepareToAnalyze(in: format) // charge le modèle maintenant, pas au premier mot
             if stale() { return }
             let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
-            self.analyzer = analyzer; input = continuation
+            self.analyzer = analyzer
 
-            results = Task { [weak self] in
+            results = Task { [weak self, log] in
                 var done = ""
-                for try await r in transcriber.results {
-                    let s = String(r.text.characters)
-                    if r.isFinal { done += s; await self?.finalized(s, partial: done) } else { await self?.setPartial(done + s) }
-                }
+                do {
+                    for try await r in transcriber.results {
+                        let s = String(r.text.characters)
+                        if r.isFinal { done += s; await self?.finalized(s, partial: done) } else { await self?.setPartial(done + s, tail: s) }
+                    }
+                } catch { log.error("flux de résultats interrompu : \(error.localizedDescription, privacy: .public)"); throw error }
             }
             try await analyzer.start(inputSequence: stream)
             if stale() { continuation.finish(); await analyzer.cancelAndFinishNow(); return }
-            try Self.startCapture(engine, to: format, continuation, meter)
+            let replayed = feed.attach(format, continuation)
+            log.info("analyseur prêt après \(Int(Date().timeIntervalSince(self.startedAt) * 1000)) ms, \(replayed) tampons rejoués")
             // Garde-fou : un micro oublié en mode « basculer » s'arrête seul.
             // ponytail: 3 min en dur.
             limitTask = Task { try? await Task.sleep(for: .seconds(180)); if !Task.isCancelled { await stop() } }
         } catch {
+            if stale() { return } // abandonnée entre-temps : ne pas écraser une dictée plus récente
             await fail(error)
         }
     }
 
+    /// Le micro a changé en cours de route (casque Bluetooth qui bascule, périphérique branché) : l'engine s'est arrêté, on le relance.
+    private func restartCapture() {
+        guard phase != .idle else { return }
+        do { try Self.startCapture(engine, feed, meter, Microphones.resolve(Defaults[.dictationMic])); log.info("micro relancé après changement de configuration") }
+        catch { log.error("micro non relancé : \(error.localizedDescription, privacy: .public)") }
+    }
+
+    private func stopCapture() {
+        if let o = configObserver { NotificationCenter.default.removeObserver(o); configObserver = nil }
+        engine.stop(); engine.inputNode.removeTap(onBus: 0)
+    }
+
     /// Un segment est figé : on le nettoie tout de suite, en série, pendant que la suite est dictée.
     private func finalized(_ s: String, partial p: String) {
-        partial = p
+        partial = p; tail = ""
         raws.append(s)
         let session = warm ?? (Defaults[.dictationCleanup] ? TextCleanup.warmSession() : nil)
         warm = nil
@@ -128,10 +221,18 @@ final class Dictation: ObservableObject {
     private func stop() async {
         guard phase == .listening else { return }
         phase = .processing
-        generation += 1; limitTask?.cancel(); limitTask = nil
-        let g = generation
-        engine.stop(); engine.inputNode.removeTap(onBus: 0)
-        input?.finish(); input = nil
+        limitTask?.cancel(); limitTask = nil
+        let g = generation // pas de generation += 1 ici : seul un abandon (clic, erreur) invalide cette dictée
+        // Traîne : on relâche la touche un peu avant la fin de la dernière syllabe, et le micro livre par blocs.
+        // ponytail: 300 ms en dur.
+        try? await Task.sleep(for: .milliseconds(300))
+        // Relâché avant la fin de la préparation (dictée courte) : l'audio est déjà en mémoire, on attend l'analyseur.
+        let setup = startTask
+        let ready = await withDeadline(20) { () async -> Bool? in await setup?.value; return true }
+        guard generation == g else { return }          // abandonnée par un clic ou une erreur pendant l'attente
+        guard ready != nil else { await fail(DictationError.notReady); return }
+        stopCapture()
+        feed.finish()
 
         // Chaque attente est bornée : la dictée ne reste jamais bloquée sur « traitement ».
         let a = analyzer, r = results
@@ -141,6 +242,9 @@ final class Dictation: ObservableObject {
         guard generation == g else { return }          // annulée par un clic pendant l'attente
         if finished != true { r?.cancel(); await a?.cancelAndFinishNow() }
         analyzer = nil; results = nil
+        // Finalisation ratée ou trop lente : le dernier bout encore volatil serait perdu, on le garde.
+        let unfinalized = finished == true ? "" : tail
+        log.info("fin d'écoute : \(self.raws.count) segments, finalisation \(finished == true ? "ok" : "échouée"), reste volatil \(unfinalized.count) car.")
 
         let all = chunks
         let parts = await withDeadline(12) { () async -> [String]? in
@@ -149,12 +253,15 @@ final class Dictation: ObservableObject {
             return out
         }
         guard generation == g else { return }
-        // Délai dépassé ou erreur : on colle ce qui a été entendu (texte partiel, règles seulement) plutôt que rien.
-        var text = TextCleanup.finish(parts ?? [TextCleanup.spoken(TextCleanup.removeFillers(partial), locale: Defaults[.dictationLocale])])
+        // Délai dépassé ou erreur : on colle ce qui a été entendu (règles seulement, sans modèle) plutôt que rien.
+        let locale = Defaults[.dictationLocale]
+        let rest = TextCleanup.spoken(TextCleanup.removeFillers(unfinalized), locale: locale)
+        var pieces = parts ?? [TextCleanup.spoken(TextCleanup.removeFillers((raws + [unfinalized]).joined(separator: " ")), locale: locale)]
+        if parts != nil { pieces.append(rest) }
+        var text = TextCleanup.finish(pieces)
         let sel = selection; selection = nil
         if let sel, !text.isEmpty {
-            Logger(subsystem: "theboringteam.boringnotch", category: "dictation")
-                .info("sélection \(sel.count) car., premier mot « \(text.split(separator: " ").first.map(String.init) ?? "", privacy: .public) », commande : \(TextCleanup.isCommand(text))")
+            log.info("sélection \(sel.count) car., premier mot « \(text.split(separator: " ").first.map(String.init) ?? "", privacy: .public) », commande : \(TextCleanup.isCommand(text))")
             if TextCleanup.isCommand(text) {
                 // Commande vocale sur la sélection (« raccourcis », « traduis en anglais »…) : le modèle réécrit la sélection.
                 let out = await TextCleanup.command(text, on: sel)
@@ -170,20 +277,19 @@ final class Dictation: ObservableObject {
             await TextInserter.insert(text)
             if Defaults[.dictationKeepHistory] {
                 var h = Defaults[.dictationHistory]
-                h.insert(DictationEntry(text: text, raw: raws.joined(separator: " ")), at: 0)
+                h.insert(DictationEntry(text: text, raw: (raws + [unfinalized]).joined(separator: " ")), at: 0)
                 Defaults[.dictationHistory] = Array(h.prefix(200))
             }
             flash()
         }
         guard generation == g else { return }
-        phase = .idle; partial = ""; chunks = []; raws = []; warm = nil
+        phase = .idle; partial = ""; tail = ""; chunks = []; raws = []; warm = nil
     }
 
     /// Abandonne tout (clic pendant le traitement) : rien n'est collé.
     func cancel() {
         generation += 1; limitTask?.cancel(); limitTask = nil
-        engine.stop(); engine.inputNode.removeTap(onBus: 0)
-        input?.finish(); input = nil; results?.cancel(); results = nil
+        stopCapture(); feed.finish(); results?.cancel(); results = nil
         chunks.forEach { $0.cancel() }; chunks = []; raws = []; warm = nil; selection = nil
         let a = analyzer; analyzer = nil
         Task { await a?.cancelAndFinishNow() }
@@ -211,8 +317,7 @@ final class Dictation: ObservableObject {
 
     private func fail(_ e: Error) async {
         generation += 1; limitTask?.cancel(); limitTask = nil
-        engine.stop(); engine.inputNode.removeTap(onBus: 0)
-        input?.finish(); input = nil; results?.cancel(); results = nil
+        stopCapture(); feed.finish(); results?.cancel(); results = nil
         chunks.forEach { $0.cancel() }; chunks = []; raws = []; warm = nil; selection = nil
         await analyzer?.cancelAndFinishNow(); analyzer = nil
         error = (e as? DictationError)?.message ?? e.localizedDescription
@@ -226,41 +331,39 @@ final class Dictation: ObservableObject {
         switch phase { case .listening: Task { await stop() }; case .processing: cancel(); default: break }
     }
 
-    fileprivate func setPartial(_ s: String) { partial = s }
+    fileprivate func setPartial(_ s: String, tail t: String) { partial = s; tail = t }
 
     // nonisolated : le tap tourne sur le thread audio, il ne doit pas hériter du MainActor.
-    private nonisolated static func startCapture(_ engine: AVAudioEngine, to format: AVAudioFormat,
-                                                 _ out: AsyncStream<AnalyzerInput>.Continuation,
-                                                 _ meter: LevelMeter) throws {
+    private nonisolated static func startCapture(_ engine: AVAudioEngine, _ feed: AudioFeed, _ meter: LevelMeter,
+                                                 _ mic: MicDevice?) throws {
+        Microphones.apply(mic, to: engine) // avant de lire le format : le micro choisi peut avoir un autre taux d'échantillonnage
         let node = engine.inputNode
-        let inFormat = node.outputFormat(forBus: 0)
-        guard let converter = AVAudioConverter(from: inFormat, to: format) else { throw DictationError.unsupported }
-        node.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { buffer, _ in
+        node.removeTap(onBus: 0)
+        engine.prepare()
+        // inputFormat, pas outputFormat : après un changement de micro, ce dernier reste périmé (16 kHz du casque au lieu de 48 kHz)
+        // et installTap lève alors une exception (crash).
+        let inFormat = node.inputFormat(forBus: 0)
+        guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else { throw DictationError.noInput } // route Bluetooth en transition
+        node.installTap(onBus: 0, bufferSize: 1024, format: inFormat) { buffer, _ in
             if let ch = buffer.floatChannelData?[0], buffer.frameLength > 0 {
                 var sum: Float = 0
                 for i in 0..<Int(buffer.frameLength) { sum += ch[i] * ch[i] }
                 meter.push(min(1, (sum / Float(buffer.frameLength)).squareRoot() * 6)) // RMS, gain visuel
             }
-            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * format.sampleRate / inFormat.sampleRate) + 1
-            guard let converted = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return }
-            var fed = false
-            converter.convert(to: converted, error: nil) { _, status in
-                if fed { status.pointee = .noDataNow; return nil }
-                fed = true; status.pointee = .haveData; return buffer
-            }
-            if converted.frameLength > 0 { out.yield(AnalyzerInput(buffer: converted)) }
+            feed.push(buffer)
         }
-        engine.prepare()
         try engine.start()
     }
 }
 
 enum DictationError: Error {
-    case micDenied, unsupported, commandFailed
+    case micDenied, unsupported, commandFailed, noInput, notReady
     var message: String {
         switch self {
         case .micDenied: "Accès au micro refusé (Réglages Système > Confidentialité)"
         case .unsupported: "Langue non prise en charge par la dictée Apple"
+        case .noInput: "Aucun micro disponible"
+        case .notReady: "Modèle de langue encore en préparation, réessaie dans un instant"
         case .commandFailed: "Commande impossible (modèle indisponible ou trop lent)"
         }
     }
