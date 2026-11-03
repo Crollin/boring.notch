@@ -2,8 +2,8 @@
 //  AgentsView.swift
 //  boringNotch
 //
-//  Design inspiré de NotchNook : en-tête « Progression » + boutons ronds,
-//  agent + statut en couleur d'accent, étapes cochées, carte d'activité à droite.
+//  Surfaces et contrôles accordés aux Copies : fond sombre, liserés discrets,
+//  aperçu d'activité et priorité aux questions / validations.
 //
 
 import SwiftUI
@@ -84,19 +84,59 @@ extension AgentSession {
     }
 }
 
-private let secondary = Color.white.opacity(0.5)
-private let cardFill = Color.white.opacity(0.07)
-private let cardStroke = Color.white.opacity(0.10)
+private let secondary = Color.white.opacity(0.65)
+private let cardFill = Color.white.opacity(0.065)
+private let cardStroke = Color.white.opacity(0.08)
 
-/// Liquid Glass (macOS 26+) teinté ; repli sur un fond translucide + liseré avant.
 private extension View {
-    @ViewBuilder func glass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
-        if #available(macOS 26, *) {
-            self.background(shape.fill(.white.opacity(0.04)))
-                .glassEffect(interactive ? .regular.tint(tint?.opacity(0.35)).interactive() : .regular.tint(tint?.opacity(0.35)), in: shape)
-        } else {
-            self.background(shape.fill(tint?.opacity(0.18) ?? cardFill)).overlay(shape.stroke(cardStroke))
+    func agentSurface(selected: Bool = false, tint: Color = .effectiveAccent) -> some View {
+        background(selected ? tint.opacity(0.12) : cardFill, in: RoundedRectangle(cornerRadius: 11))
+            .overlay {
+                RoundedRectangle(cornerRadius: 11)
+                    .strokeBorder(selected ? tint.opacity(0.6) : cardStroke)
+            }
+    }
+}
+
+/// One control treatment for navigation, approvals and question actions.
+private struct AgentActionStyle: ButtonStyle {
+    var tint: Color? = nil
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(tint ?? .white.opacity(0.85))
+            .padding(.horizontal, 10)
+            .frame(minHeight: 24)
+            .background((tint ?? .white).opacity(configuration.isPressed ? 0.22 : hovering ? 0.15 : tint == nil ? 0.065 : 0.12), in: Capsule())
+            .overlay(Capsule().strokeBorder((tint ?? .white).opacity(hovering ? 0.45 : 0.12)))
+            .contentShape(Capsule())
+            .opacity(isEnabled ? 1 : 0.4)
+            .onHover { hovering = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
+    }
+}
+
+private struct AgentEmptyState: View {
+    let symbol: String
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 23, weight: .light))
+                .foregroundStyle(Color.effectiveAccent)
+                .frame(width: 44, height: 44)
+                .background(Color.effectiveAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            Text(message)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -137,7 +177,7 @@ struct AgentsView: View {
                 }
             }
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 4)
         // Hauteur du notch ouvert fixe (190) : on ne déborde jamais, sinon la mise en page remonte hors de l'écran.
         .frame(maxHeight: .infinity, alignment: .top)
         .clipped()
@@ -147,93 +187,111 @@ struct AgentsView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Label(mode == .progress ? "Progression" : "Forfait",
-                  systemImage: mode == .progress ? "checklist" : "gauge.with.dots.needle.50percent")
-                .font(.system(size: 11, weight: .medium)).foregroundStyle(secondary)
-            Spacer()
-            if mode == .progress, store.sessions.count > 1 {
-                ForEach(store.sessions.filter { $0.cwd != nil }.prefix(4)) { chip($0) }
+            if let s = session {
+                sessionPicker(s)
+            } else {
+                Label("Agents", systemImage: "sparkles")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(secondary)
             }
-            roundButton("checklist", active: mode == .progress) { mode = .progress }
-            roundButton("gauge.with.dots.needle.50percent", active: mode == .usage) { mode = .usage }
+            Spacer(minLength: 8)
+            HStack(spacing: 3) {
+                modeButton("Progression", icon: "checklist", mode: .progress)
+                modeButton("Forfait", icon: "gauge.with.dots.needle.50percent", mode: .usage)
+            }
         }
+        .frame(height: 24)
     }
 
-    private func chip(_ s: AgentSession) -> some View {
-        let on = s.id == session?.id
-        return Button { selected = s.id } label: {
-            HStack(spacing: 5) {
+    private func sessionPicker(_ s: AgentSession) -> some View {
+        Menu {
+            ForEach(store.sessions) { candidate in
+                Button {
+                    selected = candidate.id
+                } label: {
+                    Label("\(candidate.source.capitalized) · \(candidate.project) — \(candidate.title ?? candidate.stateText)",
+                          systemImage: candidate.id == s.id ? "checkmark" : agentIcon(candidate.source))
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
                 Circle().fill(s.tint).frame(width: 6, height: 6)
-                Text(s.project).lineLimit(1)
+                Text(s.project).lineLimit(1).truncationMode(.middle)
+                if store.sessions.count > 1 {
+                    Text("\(store.sessions.count)")
+                        .monospacedDigit()
+                        .foregroundStyle(secondary)
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+                }
             }
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(on ? .white : secondary)
-            .padding(.horizontal, 9).padding(.vertical, 5)
-            .glass(Capsule(), tint: on ? s.tint : nil, interactive: true)
+            .font(.system(size: 10.5, weight: .medium))
+            .foregroundStyle(.white.opacity(0.85))
         }
-        .buttonStyle(.plain)
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(AgentActionStyle())
+        .fixedSize(horizontal: false, vertical: true)
+        .help("Choisir une session")
+        .accessibilityLabel("Session : \(s.project), \(s.source.capitalized)")
     }
 
-    private func roundButton(_ icon: String, active: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(active ? Color.green : secondary)
-                .frame(width: 26, height: 26)
-                .glass(Circle(), tint: active ? .green : nil, interactive: true)
+    private func modeButton(_ title: String, icon: String, mode target: Mode) -> some View {
+        Button { mode = target } label: {
+            Label(title, systemImage: icon)
+                .lineLimit(1)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AgentActionStyle(tint: mode == target ? .effectiveAccent : nil))
+        .accessibilityAddTraits(mode == target ? [.isSelected] : [])
     }
 
     // MARK: Progression
 
     @ViewBuilder private var progress: some View {
         if let s = session {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
                     agentHeader(s)
                     stepList(s)
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                ActivityCard(session: s).frame(width: 220)
+                ActivityCard(session: s).frame(width: 210)
             }
         } else {
-            VStack(spacing: 6) {
-                Mascot(color: secondary)
-                Text("Aucune session en cours").font(.system(size: 11)).foregroundStyle(secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            AgentEmptyState(symbol: "sparkles", message: "Aucune session en cours")
         }
     }
 
     private func agentHeader(_ s: AgentSession) -> some View {
         Button { AgentStore.shared.openTerminal(s) } label: { agentHeaderContent(s) }
             .buttonStyle(.plain)
-            .help("Ouvrir le terminal")
+            .help("\(s.title ?? s.project)\nOuvrir le terminal")
+            .accessibilityLabel("\(s.title ?? s.project), \(s.source.capitalized), \(s.stateText)")
+            .accessibilityHint("Ouvrir le terminal")
     }
 
     private func agentHeaderContent(_ s: AgentSession) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             ZStack {
-                Circle().fill(.black)
-                Circle().stroke(s.tint.opacity(0.55), lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 8).fill(s.tint.opacity(0.12))
                 if s.source == "claude" {
                     Mascot(color: s.tint).scaleEffect(0.8)
                 } else {
                     Image(systemName: agentIcon(s.source)).font(.system(size: 12)).foregroundStyle(s.tint)
                 }
             }
-            .frame(width: 30, height: 30)
+            .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(s.title ?? s.project)
                     .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                 HStack(spacing: 5) {
-                    Text(s.source.capitalized + " · " + s.project).foregroundStyle(secondary)
+                    Text(s.source.capitalized).foregroundStyle(secondary)
+                    Text("·").foregroundStyle(secondary)
                     Text(s.stateText).foregroundStyle(s.tint)
                 }
-                .font(.system(size: 10.5, weight: .medium)).lineLimit(1)
+                .font(.system(size: 10, weight: .medium)).lineLimit(1)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "arrow.up.forward.app").font(.system(size: 10)).foregroundStyle(secondary)
         }
         .contentShape(Rectangle())
@@ -243,7 +301,7 @@ struct AgentsView: View {
         VStack(alignment: .leading, spacing: 0) {
             if s.steps.isEmpty {
                 Text(s.isActive ? s.state.label : "En attente d'un prompt")
-                    .font(.system(size: 12)).foregroundStyle(secondary)
+                    .font(.system(size: 11)).foregroundStyle(secondary)
             }
             let steps = Array(s.steps.suffix(3))
             ForEach(Array(steps.enumerated()), id: \.element.id) { i, step in
@@ -257,14 +315,15 @@ struct AgentsView: View {
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(step.done ? secondary : s.tint)
                     }
-                    .frame(width: 14, height: 20)
-                    Text(step.label).font(.system(size: 11.5))
+                    .frame(width: 14, height: 18)
+                    Text(step.label).font(.system(size: 11))
                         .foregroundStyle(.white.opacity(step.done ? 0.65 : 1)).lineLimit(1)
                     Spacer(minLength: 6)
                     if let d = step.duration {
-                        Text(String(format: "%.1fs", d)).font(.system(size: 9.5, design: .monospaced)).foregroundStyle(.white.opacity(0.3))
+                        Text(String(format: "%.1f s", d)).font(.system(size: 9.5).monospacedDigit()).foregroundStyle(secondary)
                     }
                 }
+                .help(step.file ?? step.label)
             }
         }
     }
@@ -273,12 +332,13 @@ struct AgentsView: View {
 
     @ViewBuilder private var usagePage: some View {
         if freshUsage.isEmpty {
-            Text("Aucune limite disponible : lancez une session Claude Code ou Codex.")
-                .font(.system(size: 11)).foregroundStyle(secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            AgentEmptyState(symbol: "gauge.with.dots.needle.50percent",
+                            message: "Aucune limite disponible : lancez une session Claude Code ou Codex.")
         } else {
-            HStack(alignment: .top, spacing: 10) {
-                ForEach(freshUsage, id: \.source) { UsageBlock(source: $0.source, limits: $0.limits) }
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(freshUsage, id: \.source) { UsageBlock(source: $0.source, limits: $0.limits) }
+                }
             }
         }
     }
@@ -293,49 +353,57 @@ private struct ActivityCard: View {
     private var waiting: Bool { session.state == .waiting }
     private var running: Bool { session.isActive && (step.map { !$0.done } ?? false) }
     private var tint: Color { session.tint }
+    private var diff: LineDiff? {
+        guard !waiting, step?.isEdit == true, let file = step?.file else { return nil }
+        return session.diffs[file]
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 7) {
                 Image(systemName: waiting ? "exclamationmark.shield.fill" : (step?.symbol ?? "folder.fill"))
                     .font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
                     .frame(width: 24, height: 24)
                     .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tint.opacity(0.16)))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).lineLimit(1).truncationMode(.middle)
-                    Text(status).font(.system(size: 10.5, weight: .medium)).foregroundStyle(waiting || running ? tint : secondary)
+                    Text(status).font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(waiting || running ? tint : secondary).lineLimit(1)
                 }
-                Spacer(minLength: 4)
-                if step?.isEdit == true, let f = step?.file, let d = session.diffs[f] {
-                    Text("+\(d.added)").foregroundStyle(.green)
-                    Text("−\(d.removed)").foregroundStyle(.red)
-                }
+                Spacer(minLength: 0)
             }
-            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
             if let detail {
-                Text(detail).font(.system(size: 10, design: .monospaced)).foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(2).truncationMode(.middle)
+                Text(detail).font(.system(size: 10, design: .monospaced)).foregroundStyle(secondary)
+                    .lineLimit(waiting ? 1 : 2).truncationMode(.middle)
+                    .help(detail)
             }
+            Spacer(minLength: 0)
             if waiting {
                 HStack(spacing: 8) {
                     decisionButton("Refuser", tint: nil) { AgentStore.shared.decide(session.id, allow: false) }
-                    decisionButton("Autoriser", tint: .red) { AgentStore.shared.decide(session.id, allow: true) }
+                    decisionButton("Autoriser", tint: .effectiveAccent) { AgentStore.shared.decide(session.id, allow: true) }
                 }
-            } else if running {
-                ProgressLine(running: true, color: tint)
+            } else if running || diff != nil {
+                HStack(spacing: 8) {
+                    if running { ProgressLine(running: true, color: tint) }
+                    if let diff {
+                        Text("+\(diff.added)").foregroundStyle(.green)
+                        Text("−\(diff.removed)").foregroundStyle(.red)
+                    }
+                }
+                .font(.system(size: 9.5, weight: .semibold).monospacedDigit())
             }
         }
-        .padding(11)
-        .glass(RoundedRectangle(cornerRadius: 16, style: .continuous), tint: waiting ? .red : nil)
+        .padding(10)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .agentSurface()
     }
 
     private func decisionButton(_ label: String, tint: Color?, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
-                .frame(maxWidth: .infinity).padding(.vertical, 6)
-                .glass(Capsule(), tint: tint, interactive: true)
+            Text(label).frame(maxWidth: .infinity)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AgentActionStyle(tint: tint))
     }
 
     private var title: String {
@@ -348,6 +416,7 @@ private struct ActivityCard: View {
         if waiting { return "En attente de votre accord" }
         guard let step else { return session.stateText }
         if let d = step.duration { return String(format: "Terminé · %.1f s", d) }
+        if !running { return session.stateText }
         return step.isEdit ? "Écriture…" : "En cours…"
     }
 
@@ -360,14 +429,12 @@ private struct ActivityCard: View {
 
 // MARK: - Question (AskUserQuestion) et plan (ExitPlanMode)
 
-/// Bouton capsule « verre » commun aux cartes de question et de plan.
+/// Même action capsule que les contrôles de navigation.
 private func pillButton(_ label: String, tint: Color?, _ action: @escaping () -> Void) -> some View {
     Button(action: action) {
-        Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .glass(Capsule(), tint: tint, interactive: true)
+        Text(label).lineLimit(1)
     }
-    .buttonStyle(.plain)
+    .buttonStyle(AgentActionStyle(tint: tint))
 }
 
 /// Questions une par une ; un clic sur une option répond (choix unique) ou la coche (choix multiple).
@@ -378,31 +445,45 @@ private struct QuestionCard: View {
     @State private var index = 0
     @State private var answers: [String: String] = [:]
     @State private var checked: Set<String> = []
+    @State private var hovered: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var q: AgentQuestion { questions[min(index, questions.count - 1)] }
     private var multi: Bool { q.multiSelect == true }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                if let h = q.header {
-                    Text(h.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(.blue)
-                }
-                Text(q.question).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).lineLimit(2)
-                Spacer(minLength: 4)
-                Text(session.project).font(.system(size: 10, weight: .medium)).foregroundStyle(secondary).lineLimit(1)
-                if questions.count > 1 {
-                    Text("\(index + 1)/\(questions.count)").font(.system(size: 10, weight: .medium).monospacedDigit()).foregroundStyle(secondary)
-                }
-                if multi { pillButton("Valider", tint: .blue) { record(checked.sorted().joined(separator: ", ")) }.disabled(checked.isEmpty) }
-                pillButton("Autre…", tint: nil) { AgentStore.shared.openTerminal(session) }
+                Image(systemName: "questionmark.bubble")
+                    .font(.system(size: 12)).foregroundStyle(Color.effectiveAccent)
+                Text(q.question).font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .help(q.question)
             HStack(alignment: .top, spacing: 6) {
                 ForEach(q.options, id: \.label) { option($0) }
             }
+            .frame(maxHeight: .infinity)
+            HStack(spacing: 6) {
+                Text(session.project).lineLimit(1).truncationMode(.middle)
+                if let header = q.header, !header.isEmpty {
+                    Text("·")
+                    Text(header).lineLimit(1)
+                }
+                if questions.count > 1 {
+                    Text("\(index + 1)/\(questions.count)").monospacedDigit()
+                }
+                Spacer(minLength: 4)
+                pillButton("Autre…", tint: nil) { AgentStore.shared.openTerminal(session) }
+                if multi {
+                    pillButton("Valider", tint: .effectiveAccent) { record(checked.sorted().joined(separator: ", ")) }
+                        .disabled(checked.isEmpty)
+                }
+            }
+            .font(.system(size: 10, weight: .medium)).foregroundStyle(secondary)
         }
-        .padding(10)
-        .glass(RoundedRectangle(cornerRadius: 16, style: .continuous), tint: .blue)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private func option(_ o: AgentQuestion.Option) -> some View {
@@ -410,23 +491,33 @@ private struct QuestionCard: View {
         return Button {
             if multi { if on { checked.remove(o.label) } else { checked.insert(o.label) } } else { record(o.label) }
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    if multi { Image(systemName: on ? "checkmark.circle.fill" : "circle").font(.system(size: 9)) }
-                    Text(o.label).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if multi {
+                        Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 10))
+                            .foregroundStyle(on ? Color.effectiveAccent : secondary)
+                    }
+                    Text(o.label).font(.system(size: 11, weight: .semibold)).lineLimit(2)
                 }
                 if let d = o.description {
-                    Text(d).font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.55)).lineLimit(2)
+                    Text(d).font(.system(size: 10)).foregroundStyle(secondary).lineLimit(2)
                 }
             }
             .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 9).padding(.vertical, 6)
-            .glass(RoundedRectangle(cornerRadius: 10, style: .continuous), tint: on ? .blue : nil, interactive: true)
-            .contentShape(Rectangle())
+            .multilineTextAlignment(.leading)
+            .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .agentSurface(selected: on || hovered == o.label)
+            .contentShape(RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain)
-        .help(o.description ?? o.label)
+        .onHover { hovered = $0 ? o.label : nil }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovered)
+        .help([o.label, o.description].compactMap { $0 }.joined(separator: "\n"))
+        .accessibilityLabel(o.label)
+        .accessibilityValue(multi ? (on ? "Sélectionné" : "Non sélectionné") : "")
+        .accessibilityHint(o.description ?? "")
     }
 
     private func record(_ value: String) {
@@ -447,21 +538,23 @@ private struct PlanCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            ScrollView {
+            ScrollView(.vertical) {
                 Text(text).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.85))
                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                    .padding(10)
             }
             .frame(maxWidth: .infinity)
+            .agentSurface()
             VStack(alignment: .trailing, spacing: 6) {
                 Text("Plan à valider").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
                 Text(session.project).font(.system(size: 10, weight: .medium)).foregroundStyle(secondary).lineLimit(1)
                 Spacer(minLength: 0)
                 pillButton("Retoucher…", tint: nil) { AgentStore.shared.openTerminal(session) }
-                pillButton("Approuver", tint: .green) { AgentStore.shared.decide(session.id, allow: true) }
+                pillButton("Approuver", tint: .effectiveAccent) { AgentStore.shared.decide(session.id, allow: true) }
             }
+            .frame(width: 122)
         }
-        .padding(10)
-        .glass(RoundedRectangle(cornerRadius: 16, style: .continuous), tint: .purple)
+        .frame(maxHeight: .infinity)
     }
 }
 
@@ -469,13 +562,14 @@ private struct PlanCard: View {
 private struct ProgressLine: View {
     let running: Bool
     let color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { g in
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.12))
-                if running {
-                    TimelineView(.animation) { t in
+                if running && !reduceMotion {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30)) { t in
                         let phase = t.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.4) / 1.4
                         Capsule().fill(color)
                             .frame(width: g.size.width * 0.3)
@@ -488,6 +582,7 @@ private struct ProgressLine: View {
             .clipShape(Capsule())
         }
         .frame(height: 3)
+        .accessibilityHidden(true)
     }
 }
 
@@ -498,10 +593,10 @@ private struct UsageBlock: View {
     let limits: UsageLimits
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 6) {
                 Image(systemName: agentIcon(source)).font(.system(size: 11))
-                Text(source.capitalized).font(.system(size: 12, weight: .bold))
+                Text(source.capitalized).font(.system(size: 12, weight: .semibold))
             }
             .foregroundStyle(accent(source))
             if let w = limits.fiveHour { UsageLine(title: "5 h", limit: w) }
@@ -510,7 +605,7 @@ private struct UsageBlock: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glass(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .agentSurface()
     }
 }
 
@@ -536,6 +631,10 @@ private struct UsageLine: View {
         }
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(.white)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title) : \(Int(limit.usedPercent.rounded())) pour cent utilisés")
+        .accessibilityValue(limit.resetsAt.map { "Réinitialisation dans \(Self.remaining($0))" } ?? "")
+        .help(limit.resetsAt.map { "Réinitialisation : \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "")
     }
 
     static func remaining(_ date: Date) -> String {
