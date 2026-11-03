@@ -22,7 +22,7 @@ final class BluetoothBattery: NSObject {
 
     private var central: CBCentralManager?
     private var reading: [CBPeripheral] = []       // retenus pendant la lecture
-    private var alerted: [UUID: Int] = [:]         // dernier seuil signalé par appareil
+    private var alerted: [String: Int] = [:]         // dernier seuil signalé par appareil
     private var timer: Timer?
 
     /// Crée le gestionnaire Bluetooth (déclenche la demande d'autorisation la première fois).
@@ -35,7 +35,9 @@ final class BluetoothBattery: NSObject {
     }
 
     private func poll() {
-        guard Defaults[.activityLowBattery], let central, central.state == .poweredOn else { return }
+        guard Defaults[.activityLowBattery] else { return }
+        Task { for d in await OpenLogi.devices() where d.online && !d.charging { if let l = d.percentage { check(id: d.name, name: d.name, level: l) } } }
+        guard let central, central.state == .poweredOn else { return }
         reading = central.retrieveConnectedPeripherals(withServices: [Self.service])
         for p in reading {
             p.delegate = self
@@ -46,13 +48,17 @@ final class BluetoothBattery: NSObject {
     private func received(_ p: CBPeripheral, level: Int) {
         central?.cancelPeripheralConnection(p)
         reading.removeAll { $0 == p }
+        check(id: p.identifier.uuidString, name: p.name ?? "Accessoire", level: level)
+    }
+
+    private func check(id: String, name: String, level: Int) {
         guard let threshold = Self.thresholds.last(where: { level <= $0 }) else {
-            alerted[p.identifier] = nil   // rechargé : on pourra prévenir à nouveau
+            alerted[id] = nil   // rechargé : on pourra prévenir à nouveau
             return
         }
-        if let last = alerted[p.identifier], last <= threshold { return }
-        alerted[p.identifier] = threshold
-        ActivityEvents.shared.showDevice(.init(name: p.name ?? "Accessoire", kind: .lowBattery(level)))
+        if let last = alerted[id], last <= threshold { return }
+        alerted[id] = threshold
+        ActivityEvents.shared.showDevice(.init(name: name, kind: .lowBattery(level)))
     }
 }
 

@@ -10,6 +10,7 @@
 import Defaults
 import Foundation
 import FoundationModels
+import OSLog
 
 @available(macOS 26.0, *)
 enum TextCleanup {
@@ -152,7 +153,7 @@ enum TextCleanup {
         let out = await withDeadline(15) { () async -> String? in
             try? await session.respond(to: "Consigne : \(instruction)\n\nTexte :\n\(selection)", options: options).content
         }
-        return out.flatMap { plausible($0, for: selection, ratio: 0.1...6) }
+        return out.flatMap { plausible($0, for: selection, ratio: 0.1...6, keep: 0) }
     }
 
     /// Mot(s) sélectionné(s) puis redicté(s), proches l'un de l'autre → règle suggérée « avant => après ».
@@ -207,16 +208,32 @@ enum TextCleanup {
         let out = await withDeadline(5) { () async -> String? in
             try? await session.respond(to: "Texte à corriger :\n" + text, options: options).content
         }
-        return out.flatMap { plausible($0, for: text) }
+        let ok = out.flatMap { plausible($0, for: text) }
+        if out != nil, ok == nil { Logger(subsystem: "theboringteam.boringnotch", category: "dictation").info("nettoyage rejeté, segment gardé tel quel (\(text.count) car.)") }
+        return ok
+    }
+
+    /// Part des mots de 4 lettres ou plus de `input` encore présents dans `output` (comparaison sur les 4 premières lettres,
+    /// sans accents ni casse : un accord corrigé ne compte pas comme un mot perdu, un mot supprimé oui).
+    static func retained(_ output: String, of input: String) -> Double {
+        func stems(_ s: String) -> [String] {
+            s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+                .split { !$0.isLetter && !$0.isNumber }.filter { $0.count >= 4 }.map { String($0.prefix(4)) }
+        }
+        let src = stems(input)
+        guard !src.isEmpty else { return 1 }
+        let out = Set(stems(output))
+        return Double(src.filter(out.contains).count) / Double(src.count)
     }
 
     /// Refus, commentaire ou réécriture hors sujet du modèle → on rejette et on garde le texte d'origine.
-    static func plausible(_ output: String, for input: String, ratio range: ClosedRange<Double> = 0.5...1.6) -> String? {
+    /// `keep` : part minimale des mots de l'entrée qui doivent survivre (le modèle ne doit pas « résumer » une dictée).
+    static func plausible(_ output: String, for input: String, ratio range: ClosedRange<Double> = 0.75...1.5, keep: Double = 0.75) -> String? {
         var o = output.trimmingCharacters(in: .whitespacesAndNewlines)
         o = o.replacingOccurrences(of: "^(texte corrigé|corrected text)\\s*:\\s*", with: "", options: [.regularExpression, .caseInsensitive])
         guard !o.isEmpty else { return nil }
         let ratio = Double(o.count) / Double(max(input.count, 1))
-        guard range.contains(ratio) else { return nil }
+        guard range.contains(ratio), retained(o, of: input) >= keep else { return nil }
         let markers = ["je ne peux pas", "je suis un modèle", "modèle linguistique", "développé par apple", "désolé",
                        "i can't", "i cannot", "i'm sorry", "as a language model", "developed by apple"]
         let low = input.lowercased()

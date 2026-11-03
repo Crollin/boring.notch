@@ -3,9 +3,10 @@
 //  boringNotch
 //
 //  Événement d'appareil dans la notch fermée élargie (même mécanique que la charge) :
-//  - connexion : pastille d'accent qui « pop », ondes qui s'échappent, nom qui glisse en place ;
-//  - déconnexion : pastille éteinte, ondes qui se resserrent vers l'icône ;
-//  - batterie faible : pastille rouge, ondes lentes, pourcentage.
+//  Même langage que les pastilles commande / dictée : rond noir, fin anneau coloré qui porte l'information.
+//  - connexion : l'anneau se remplit à hauteur de la batterie (vert / orange / rouge), éclair en charge ;
+//  - déconnexion : anneau éteint, icône atténuée ;
+//  - batterie faible : anneau rouge qui pulse.
 //
 
 import SwiftUI
@@ -44,25 +45,24 @@ private struct Content: View {
     let notchWidth: CGFloat
     let height: CGFloat
     @State private var shown = false
-    @State private var ripple = false
 
-    private var connected: Bool { event.kind == .connected }
     private var disconnected: Bool { event.kind == .disconnected }
-    private var battery: Int? { if case .lowBattery(let l) = event.kind { l } else { nil } }
+    private var low: Int? { if case .lowBattery(let l) = event.kind { l } else { nil } }
+    /// Niveau connu : batterie lue à la connexion, ou alerte de batterie faible.
+    private var level: Int? { low ?? event.battery }
+    private var diameter: CGFloat { max(height - 8, 18) }
 
-    private var accent: Color {
-        switch event.kind {
-        case .connected: .effectiveAccent
-        case .disconnected: .white.opacity(0.35)
-        case .lowBattery: .red
-        }
+    private var tint: Color {
+        if disconnected { return .white.opacity(0.35) }
+        guard let l = level else { return .green }
+        return event.charging || l > 30 ? .green : l > 15 ? .orange : .red
     }
 
     private var status: String {
         switch event.kind {
-        case .connected: "Connecté"
         case .disconnected: "Déconnecté"
-        case .lowBattery(let l): "Batterie faible · \(l) %"
+        case .lowBattery: "Batterie faible"
+        case .connected: "Connecté"
         }
     }
 
@@ -75,15 +75,14 @@ private struct Content: View {
             Rectangle().fill(.black).frame(width: notchWidth + 10)
 
             VStack(alignment: .trailing, spacing: 0) {
-                HStack(spacing: 4) {
-                    let dot: Color = disconnected ? .white.opacity(0.35) : (battery != nil ? .red : .green)
-                    Circle().fill(dot).frame(width: 5, height: 5)
-                        .scaleEffect(!disconnected && !ripple ? 1.8 : 1)
-                        .shadow(color: dot.opacity(!disconnected && !ripple ? 0.9 : 0), radius: 4)
-                    Text(status)
-                        .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                        .foregroundStyle(battery != nil ? Color.red.opacity(0.9) : .white.opacity(0.6))
+                HStack(spacing: 3) {
+                    Text(status).foregroundStyle(low != nil ? Color.red.opacity(0.9) : .white.opacity(0.6))
+                    if let l = level {
+                        if event.charging { Image(systemName: "bolt.fill").foregroundStyle(tint) }
+                        Text("\(l) %").foregroundStyle(tint)
+                    }
                 }
+                .font(.system(size: 9, weight: .semibold).monospacedDigit())
                 .opacity(shown ? 1 : 0)
                 .offset(y: shown ? 0 : -6)
                 Text(event.name)
@@ -100,38 +99,38 @@ private struct Content: View {
         }
         .frame(height: height)
         .onAppear {
-            withAnimation(disconnected ? .smooth(duration: 0.3).delay(0.05)
-                                       : .spring(response: 0.42, dampingFraction: 0.55).delay(0.08)) { shown = true }
-            withAnimation(.easeOut(duration: 1.2).delay(0.3)) { ripple = true }
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.55).delay(0.08)) { shown = true }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(event.name), \(status)")
+        .accessibilityLabel("\(event.name), \(status)\(level.map { ", \($0) %" } ?? "")")
     }
 
-    /// Ondes : vers l'extérieur (signal qui s'établit, alerte), vers l'icône à la déconnexion (signal qui se perd).
+    /// Rond noir + anneau : l'arc est la batterie (anneau plein si elle est inconnue). Alerte : l'anneau pulse.
     private var badge: some View {
-        ZStack {
-            ForEach(0..<2, id: \.self) { i in
-                Circle()
-                    .stroke(accent, lineWidth: 1.5)
-                    .scaleEffect(disconnected ? (ripple ? 0.9 : 1.9) : (ripple ? 1.9 : 1))
-                    .opacity(ripple ? 0 : (disconnected ? 0.6 : 0.7))
-                    .animation(.easeOut(duration: disconnected ? 0.8 : (battery != nil ? 1.5 : 1.1))
-                                .delay(0.3 + Double(i) * (battery != nil ? 0.45 : 0.28)), value: ripple)
+        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: low == nil)) { ctx in
+            let pulse = low != nil ? 0.55 + 0.45 * abs(sin(ctx.date.timeIntervalSinceReferenceDate * 3)) : 1
+            ZStack {
+                Circle().fill(.black)
+                Circle().stroke(tint.opacity(0.25), lineWidth: 1.8)
+                Circle().trim(from: 0, to: shown && !disconnected ? CGFloat(level ?? 100) / 100 : 0)
+                    .stroke(tint.opacity(pulse), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeOut(duration: 0.8).delay(0.2), value: shown)
+                Image(systemName: DeviceEventView.symbol(for: event.name))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(disconnected ? 0.5 : 1))
+                    .symbolEffect(.bounce, value: shown)
             }
-            Circle()
-                .fill(disconnected
-                      ? AnyShapeStyle(.white.opacity(0.14))
-                      : AnyShapeStyle(LinearGradient(colors: [accent.opacity(0.95), accent.opacity(0.55)],
-                                                     startPoint: .topLeading, endPoint: .bottomTrailing)))
-                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
-                .shadow(color: disconnected ? .clear : accent.opacity(0.6), radius: shown ? 6 : 0)
-            Image(systemName: DeviceEventView.symbol(for: event.name))
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(disconnected ? 0.6 : 1))
-                .symbolEffect(disconnected ? .bounce.down : .bounce.up, value: ripple)
+            .frame(width: diameter, height: diameter)
+            .overlay(alignment: .topTrailing) {   // y ≥ 0 : le haut de la notch rogne ce qui dépasse
+                if event.charging && !disconnected {
+                    Image(systemName: "bolt.fill").font(.system(size: 6, weight: .heavy)).foregroundStyle(.black)
+                        .frame(width: 11, height: 11).background(Circle().fill(Color.green))
+                        .overlay(Circle().stroke(.black, lineWidth: 1.5)).offset(x: 3, y: 1)
+                }
+            }
         }
-        .frame(width: 24, height: 24)
+        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
         .scaleEffect(shown ? 1 : (disconnected ? 0.8 : 0.2))
         .rotationEffect(.degrees(shown || disconnected ? 0 : -25))
     }
