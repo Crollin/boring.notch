@@ -33,6 +33,23 @@ extension SkyLightOperator {
 
 class BoringNotchSkyLightWindow: NSPanel {
     private var isSkyLightEnabled: Bool = false
+    private var fullscreenObserver: AnyCancellable?
+
+    /// Hide the entire panel, including activity tiles and HUDs, and let video receive mouse events.
+    func observeFullscreenVisibility(_ viewModel: BoringViewModel) {
+        fullscreenObserver = viewModel.$hideOnClosed
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self, weak viewModel] hidden in
+                guard let self else { return }
+                if hidden {
+                    viewModel?.close()
+                    self.orderOut(nil)
+                } else {
+                    self.orderFrontRegardless()
+                }
+            }
+    }
     
     override init(
         contentRect: NSRect,
