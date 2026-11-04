@@ -73,8 +73,17 @@ struct UsageLimits: Equatable, Codable {
     var sevenDay: RateLimit?
     var updatedAt = Date.distantPast
 
-    /// Affichée seulement si l'app a émis récemment (= en cours d'utilisation).
-    var isFresh: Bool { Date().timeIntervalSince(updatedAt) < 6 * 3600 }
+    /// Fenêtres encore valables : jusqu'à leur réinitialisation (après, le pourcentage ne veut plus rien dire).
+    /// Sans date de réinitialisation : 6 h après la dernière réception. nil = rien à afficher.
+    func current(at now: Date = .now) -> UsageLimits? {
+        func valid(_ w: RateLimit?) -> RateLimit? {
+            guard let w else { return nil }
+            if let r = w.resetsAt { return r > now ? w : nil }
+            return now.timeIntervalSince(updatedAt) < 6 * 3600 ? w : nil
+        }
+        let c = UsageLimits(fiveHour: valid(fiveHour), sevenDay: valid(sevenDay), updatedAt: updatedAt)
+        return c.fiveHour == nil && c.sevenDay == nil ? nil : c
+    }
 }
 
 /// Une ligne reçue des scripts : {"source":"claude","kind":"statusline"?,"payload":{...JSON de l'agent...}}

@@ -1,9 +1,8 @@
 #!/bin/sh
-# Hook Codex -> Boring Notch : événement de session + limites d'usage du forfait.
-# Les limites ne sont pas dans le payload du hook : on les lit dans le dernier
-# événement token_count du transcript. Échoue en silence si l'app est fermée.
+# Hook Codex -> Boring Notch : événement de session ; déclenche aussi agent-usage.sh (forfait).
+# Échoue en silence si l'app est fermée.
 exec /usr/bin/python3 -c '
-import json, os, re, socket, sys
+import json, os, re, socket, subprocess, sys
 SOCK = os.path.expanduser("~/Library/Containers/theboringteam.boringnotch/Data/.bn.sock")
 try:
     p = json.load(sys.stdin)
@@ -39,21 +38,8 @@ p = normalize(p)
 app = os.environ.get("__CFBundleIdentifier", "")
 send({"source": "codex", "app": app, "payload": p})
 
-# Limites : seulement hors événements d’outil (pas de lecture du transcript à chaque outil).
-if p.get("hook_event_name") not in ("SessionStart", "UserPromptSubmit", "Stop"):
-    sys.exit(0)
-
-# Dernier token_count du transcript -> rate_limits (primary = 5 h, secondary = 7 j).
-try:
-    last = None
-    for line in open(p["transcript_path"]):
-        if "token_count" in line:
-            last = line
-    rl = json.loads(last)["payload"]["rate_limits"]
-    def win(w):
-        return {"used_percentage": w["used_percent"], "resets_at": w["resets_at"]} if w else None
-    send({"source": "codex", "kind": "statusline", "payload": {"rate_limits": {
-        "five_hour": win(rl.get("primary")), "seven_day": win(rl.get("secondary"))}}})
-except Exception:
-    pass
-'
+# Forfait : même sonde que Claude (account/rateLimits/read), limitée à une fois / 3 min, détachée.
+if not os.environ.get("BN_DRY"):
+    subprocess.Popen([os.path.join(sys.argv[1], "agent-usage.sh"), "codex"],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+' "$(cd "$(dirname "$0")" && pwd)"

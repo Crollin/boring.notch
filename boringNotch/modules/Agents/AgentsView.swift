@@ -154,7 +154,7 @@ struct AgentsView: View {
         store.sessions.first { $0.id == selected } ?? store.sessions.first
     }
     private var freshUsage: [(source: String, limits: UsageLimits)] {
-        store.usage.filter { $0.value.isFresh }.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+        store.usage.compactMap { k, v in v.current().map { (k, $0) } }.sorted { $0.0 < $1.0 }.map { ($0.0, $0.1) }
     }
 
     /// Session qui attend une réponse ou l'approbation d'un plan : elle prend tout l'onglet, quelle que soit la sélection.
@@ -603,6 +603,13 @@ private struct UsageBlock: View {
             if let w = limits.fiveHour { UsageLine(title: "5 h", limit: w) }
             if let w = limits.sevenDay { UsageLine(title: "7 j", limit: w) }
             Spacer(minLength: 0)
+            // Les sessions lancées hors terminal (SDK, T3 Code) n'envoient pas de status line : on dit l'âge de la mesure.
+            if Date().timeIntervalSince(limits.updatedAt) > 15 * 60 {
+                Text("Mesuré \(limits.updatedAt.formatted(.relative(presentation: .named)))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(secondary)
+                    .help("Mis à jour par la status line de Claude Code dans un terminal")
+            }
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

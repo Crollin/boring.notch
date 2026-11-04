@@ -1,0 +1,1 @@
+{"type":"control_response","response":{"subtype":"success","request_id":"u","response":{"subscription_type":"pro","rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":34,"resets_at":"2026-11-04T13:50:00.032592+00:00"},"seven_day":{"utilization":59,"resets_at":"2026-11-05T22:00:00+00:00"},"seven_day_opus":null}}}}
