@@ -22,5 +22,9 @@ assert len(patch) == 1, patch
 q = patch[0]["payload"]
 assert q["tool_name"] == "Edit" and q["tool_input"]["file_path"] == "src/a.swift", q
 assert run("pas du json") == []
+for bad in ("[1]", "null", "5", '"x"'):
+    assert run(bad) == [], bad
+nt = json.load(open("pre.json")); nt.pop("transcript_path")
+assert not any(l.get("kind") == "statusline" for l in run(json.dumps(nt)))
 PY
 echo OK

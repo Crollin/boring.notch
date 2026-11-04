@@ -9,6 +9,8 @@ try:
     p = json.load(sys.stdin)
 except Exception:
     sys.exit(0)
+if not isinstance(p, dict):
+    sys.exit(0)
 
 def send(obj):
     if os.environ.get("BN_DRY"):
@@ -21,7 +23,7 @@ def send(obj):
 
 def normalize(p):
     # Codex envoie déjà le format Claude (Bash, tool_input.command, tool_use_id).
-    # Seul apply_patch (format non observé, d après la doc Codex) devient Edit.
+    # Seul apply_patch (format non observé, d’après la doc Codex) devient Edit.
     # PermissionRequest : non vérifié, relayé tel quel.
     ti = p.get("tool_input")
     if p.get("tool_name") == "apply_patch" and isinstance(ti, dict):
@@ -37,7 +39,7 @@ p = normalize(p)
 app = os.environ.get("__CFBundleIdentifier", "")
 send({"source": "codex", "app": app, "payload": p})
 
-# Limites : seulement hors événements d outil (pas de lecture du transcript à chaque outil).
+# Limites : seulement hors événements d’outil (pas de lecture du transcript à chaque outil).
 if p.get("hook_event_name") not in ("SessionStart", "UserPromptSubmit", "Stop"):
     sys.exit(0)
 
