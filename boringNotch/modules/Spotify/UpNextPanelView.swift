@@ -15,6 +15,9 @@ struct UpNextPanelView: View {
     @State private var previous: SpotifyWebAPI.QueueTrack?
     @State private var next: [SpotifyWebAPI.QueueTrack] = []
     @State private var showRooms = false
+    @State private var devices: [SpotifyDevice] = []
+
+    private var localName: String { Host.current().localizedName ?? "" }
 
     private var hasQueue: Bool { !next.isEmpty || previous != nil }
 
@@ -33,6 +36,10 @@ struct UpNextPanelView: View {
             if sonos.isActive {
                 Spacer(minLength: 0)
                 sonosLine
+            } else if SpotifyConnect.remoteActive(devices, localName: localName) != nil
+                        || SpotifyConnect.controllable(devices).count > 1 {
+                Spacer(minLength: 0)
+                deviceLine
             }
         }
         .frame(height: 110)
@@ -48,6 +55,7 @@ struct UpNextPanelView: View {
         guard music.bundleIdentifier == "com.spotify.client" else { previous = nil; next = []; return }
         // Laisse à Spotify le temps de faire avancer sa file après un changement de titre.
         try? await Task.sleep(for: .milliseconds(800))
+        if let d = await SpotifyWebAPI.shared.devices() { devices = d }
         guard !Task.isCancelled, let r = await SpotifyWebAPI.shared.upNext() else { return }
         previous = r.previous
         next = r.next
@@ -85,6 +93,45 @@ struct UpNextPanelView: View {
         Rectangle()
             .fill(tint.gradient)
             .mask { AudioSpectrumView(isPlaying: $music.isPlaying) }
+    }
+
+    /// Où ça joue quand c'est un autre appareil que ce Mac ; le menu déplace la lecture (Spotify Connect).
+    private var deviceLine: some View {
+        let remote = SpotifyConnect.remoteActive(devices, localName: localName)
+        return Menu {
+            ForEach(SpotifyConnect.controllable(devices)) { d in
+                Button {
+                    guard let id = d.id else { return }
+                    Task {
+                        _ = await SpotifyWebAPI.shared.transfer(to: id)
+                        try? await Task.sleep(for: .seconds(1))
+                        await load()
+                    }
+                } label: {
+                    Label(SpotifyConnect.sameName(d.name, localName) ? "Ce Mac" : d.name,
+                          systemImage: SpotifyConnect.symbol(for: d.type))
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: remote.map { SpotifyConnect.symbol(for: $0.type) } ?? "hifispeaker.2")
+                    .font(.system(size: 9))
+                if let remote {
+                    Text("Lecture sur \(remote.name)")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(.white.opacity(0.55))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Déplacer la lecture Spotify")
     }
 
     /// Sonos discret : le volume passe par les touches du clavier, la ligne ne fait que l'afficher.

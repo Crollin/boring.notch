@@ -18,7 +18,7 @@ final class SpotifyWebAPI: ObservableObject {
     static let shared = SpotifyWebAPI()
     static let port: NWEndpoint.Port = 8898
     static let redirectURI = "http://127.0.0.1:8898/callback"
-    private static let scopes = "user-library-read user-library-modify user-read-playback-state user-read-currently-playing user-read-recently-played"
+    private static let scopes = "user-library-read user-library-modify user-read-playback-state user-read-currently-playing user-read-recently-played user-modify-playback-state"
 
     @Published private(set) var isConnected = false
     @Published private(set) var lastError: String?
@@ -77,6 +77,20 @@ final class SpotifyWebAPI: ObservableObject {
         await call(saved ? "PUT" : "DELETE", "me/library", query: [.init(name: "uris", value: uri)]) != nil
     }
 
+    // MARK: - Appareils (Spotify Connect)
+
+    /// nil si non connecté ou en cas d'erreur.
+    func devices() async -> [SpotifyDevice]? {
+        guard let data = await call("GET", "me/player/devices") else { return nil }
+        return SpotifyConnect.decode(data)
+    }
+
+    /// Transfère la lecture (et la relance) ; false si refusé, p. ex. jeton antérieur au scope user-modify-playback-state.
+    func transfer(to deviceID: String) async -> Bool {
+        let body = try? JSONSerialization.data(withJSONObject: ["device_ids": [deviceID], "play": true] as [String: Any])
+        return await call("PUT", "me/player", body: body) != nil
+    }
+
     // MARK: - File d'attente
 
     struct QueueTrack: Identifiable, Equatable {
@@ -125,18 +139,22 @@ final class SpotifyWebAPI: ObservableObject {
     private struct QueueResponse: Decodable { let currently_playing: APIItem?; let queue: [APIItem] }
     private struct RecentResponse: Decodable { struct Item: Decodable { let track: APIItem }; let items: [Item] }
 
-    private func call(_ method: String, _ path: String, query: [URLQueryItem] = [], retry: Bool = true) async -> Data? {
+    private func call(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil, retry: Bool = true) async -> Data? {
         guard let token = await validToken() else { return nil }
         var c = URLComponents(string: "https://api.spotify.com/v1/" + path)!
         if !query.isEmpty { c.queryItems = query }
         var req = URLRequest(url: c.url!)
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let body {
+            req.httpBody = body
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               let status = (resp as? HTTPURLResponse)?.statusCode else { return nil }
         if status == 401, retry {
             accessToken = nil
-            return await call(method, path, query: query, retry: false)
+            return await call(method, path, query: query, body: body, retry: false)
         }
         guard (200..<300).contains(status) else {
             lastError = "Spotify \(status) : \(String(data: data, encoding: .utf8) ?? "")"

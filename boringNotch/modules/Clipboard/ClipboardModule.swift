@@ -2,7 +2,7 @@
 //  ClipboardModule.swift
 //  boringNotch
 //
-//  Onglet « Copies » : les 5 derniers éléments copiés (texte, image, fichiers).
+//  Onglet « Copies » : les 5 derniers éléments copiés (texte, image, fichiers), dont jusqu'à 4 épinglés.
 //  Clic = recopié dans le presse-papiers ; ⌥-clic = recopié puis collé dans l'app au premier plan.
 //  Rien n'est écrit sur disque, et les copies marquées secrètes (gestionnaires de mots de passe) sont ignorées.
 //
@@ -20,45 +20,11 @@ struct ClipboardModule: NotchModule {
     @MainActor func makeView() -> AnyView { AnyView(ClipboardView()) }
 }
 
-struct Clip: Identifiable {
-    enum Content {
-        case text(String)
-        case image(NSImage)
-        case files([URL])
-    }
-    let id = UUID()
-    let content: Content
-    let date: Date
-
-    var preview: String {
-        switch content {
-        case .text(let s): s.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: .newlines).first ?? ""
-        case .image(let i): "Image \(Int(i.size.width))×\(Int(i.size.height))"
-        case .files(let u): u.map(\.lastPathComponent).joined(separator: ", ")
-        }
-    }
-    var symbol: String {
-        switch content {
-        case .text: "text.alignleft"
-        case .image: "photo"
-        case .files: "doc"
-        }
-    }
-    /// Même contenu (pour ne pas empiler deux fois la même copie).
-    func same(as other: Content) -> Bool {
-        switch (content, other) {
-        case let (.text(a), .text(b)): a == b
-        case let (.files(a), .files(b)): a == b
-        case let (.image(a), .image(b)): a.tiffRepresentation == b.tiffRepresentation
-        default: false
-        }
-    }
-}
-
 @MainActor
 final class ClipboardStore: ObservableObject {
     static let shared = ClipboardStore()
     static let limit = 5
+    static let maxPinned = limit - 1   // garde toujours une place pour la dernière copie
 
     @Published private(set) var clips: [Clip] = []
     private var lastChange = NSPasteboard.general.changeCount
@@ -83,9 +49,23 @@ final class ClipboardStore: ObservableObject {
         guard pb.changeCount != lastChange else { return }
         lastChange = pb.changeCount
         guard Set(pb.types ?? []).isDisjoint(with: Self.secret), let content = Self.read(pb) else { return }
+        // Déjà épinglée (ou recopiée depuis son épingle) : elle reste où elle est.
+        if clips.contains(where: { $0.pinned && $0.same(as: content) }) { return }
         clips.removeAll { $0.same(as: content) }
-        clips.insert(Clip(content: content, date: .now), at: 0)
-        if clips.count > Self.limit { clips.removeLast(clips.count - Self.limit) }
+        clips = ([Clip(content: content, date: .now)] + clips).arranged(limit: Self.limit)
+    }
+
+    var pinnedCount: Int { clips.filter(\.pinned).count }
+
+    // ponytail: épingles en mémoire seulement, comme l'historique (rien sur disque) ; elles s'effacent en quittant l'app.
+    func togglePin(_ clip: Clip) {
+        guard let i = clips.firstIndex(where: { $0.id == clip.id }) else { return }
+        if !clips[i].pinned, pinnedCount >= Self.maxPinned { return }
+        var pinned = clips.filter(\.pinned)
+        var item = clips[i]
+        item.pinned.toggle()
+        if item.pinned { pinned.append(item) } else { pinned.removeAll { $0.id == item.id } }
+        clips = (pinned + clips.filter { !$0.pinned && $0.id != item.id } + (item.pinned ? [] : [item])).arranged(limit: Self.limit)
     }
 
     private static func read(_ pb: NSPasteboard) -> Clip.Content? {
@@ -140,7 +120,9 @@ private struct ClipboardView: View {
                     TimelineView(.periodic(from: .now, by: 30)) { timeline in
                         HStack(spacing: 8) {
                             ForEach(store.clips) { clip in
-                                ClipboardCard(clip: clip, now: timeline.date) {
+                                ClipboardCard(clip: clip, now: timeline.date,
+                                              canPin: clip.pinned || store.pinnedCount < ClipboardStore.maxPinned,
+                                              onPin: { withAnimation(.smooth(duration: 0.25)) { store.togglePin(clip) } }) {
                                     store.use(clip, paste: NSEvent.modifierFlags.contains(.option))
                                     vm.close()
                                 }
@@ -186,7 +168,11 @@ private struct ClipboardView: View {
             if store.clips.isEmpty {
                 Label("Historique en mémoire uniquement", systemImage: "lock")
             } else {
-                Text("\(store.clips.count) / \(ClipboardStore.limit) copies récentes")
+                if store.pinnedCount > 0 {
+                    Label("\(store.pinnedCount) épinglée\(store.pinnedCount > 1 ? "s" : "")", systemImage: "pin.fill")
+                    Text("·").padding(.horizontal, 3)
+                }
+                Text("\(store.clips.count - store.pinnedCount) récente\(store.clips.count - store.pinnedCount > 1 ? "s" : "")")
                 Spacer(minLength: 8)
                 Text("Clic : copier")
                 Text("·").padding(.horizontal, 3)
@@ -204,6 +190,8 @@ private struct ClipboardView: View {
 private struct ClipboardCard: View {
     let clip: Clip
     let now: Date
+    let canPin: Bool
+    let onPin: () -> Void
     let action: () -> Void
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -247,6 +235,7 @@ private struct ClipboardCard: View {
                 HStack(spacing: 4) {
                     Image(systemName: link == nil ? clip.symbol : "link")
                     Text(kind)
+                    Spacer(minLength: 18)   // place de l'épingle
                 }
                 .font(.system(size: 9.5, weight: .medium))
                 .foregroundStyle(tint)
@@ -272,11 +261,37 @@ private struct ClipboardCard: View {
             .background(.white.opacity(hovering ? 0.11 : 0.065), in: RoundedRectangle(cornerRadius: 11))
             .overlay {
                 RoundedRectangle(cornerRadius: 11)
-                    .strokeBorder(hovering ? Color.effectiveAccent.opacity(0.65) : .white.opacity(0.08))
+                    .strokeBorder(hovering ? Color.effectiveAccent.opacity(0.65)
+                                  : clip.pinned ? Color.effectiveAccent.opacity(0.3) : .white.opacity(0.08))
             }
             .contentShape(RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain)
+        // Bouton frère de la carte (pas imbriqué) : son clic n'enclenche pas la copie.
+        .overlay(alignment: .topTrailing) {
+            if clip.pinned || hovering {
+                Button(action: onPin) {
+                    Image(systemName: clip.pinned ? "pin.fill" : "pin")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .rotationEffect(.degrees(45))
+                        .foregroundStyle(clip.pinned ? Color.effectiveAccent : .white.opacity(0.75))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!canPin)
+                .opacity(canPin ? 1 : 0.35)
+                .padding(4)
+                .help(clip.pinned ? "Détacher" : canPin ? "Épingler : reste ici malgré les nouvelles copies"
+                                                         : "\(ClipboardStore.maxPinned) épingles au maximum")
+                .accessibilityLabel(clip.pinned ? "Détacher" : "Épingler")
+                .transition(.opacity)
+            }
+        }
+        .contextMenu {
+            Button(clip.pinned ? "Détacher" : "Épingler", action: onPin).disabled(!canPin)
+        }
+        .accessibilityAction(named: clip.pinned ? "Détacher" : "Épingler", onPin)
         .onHover { hovering = $0 }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
         .help("\(String(fullPreview.prefix(1000)))\nClic : copier · ⌥-clic : copier et coller")

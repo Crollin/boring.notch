@@ -15,6 +15,10 @@ struct ActivitiesSettings: View {
     @Default(.commandMinSeconds) private var commandMin
     @Default(.stayAwakeShortcutMinutes) private var shortcutMinutes
     @Default(.timerShortcutMinutes) private var timerMinutes
+    @Default(.pomodoroFocusMinutes) private var pomoFocus
+    @Default(.pomodoroShortMinutes) private var pomoShort
+    @Default(.pomodoroLongMinutes) private var pomoLong
+    @Default(.pomodoroLongEvery) private var pomoEvery
     @Default(.activityDownloads) private var downloads
     @Default(.activityCommands) private var commands
 
@@ -117,6 +121,17 @@ struct ActivitiesSettings: View {
                 Text("Minuteur")
             } footer: {
                 note("Aussi depuis le menu de l'icône de la barre des menus. Un clic sur la pastille arrête ; à la fin, un son et une pastille « Terminé » pendant une minute.")
+            }
+
+            Section {
+                Stepper(value: $pomoFocus, in: 5...90) { LabeledContent("Focus", value: "\(pomoFocus) min") }
+                Stepper(value: $pomoShort, in: 1...30) { LabeledContent("Pause courte", value: "\(pomoShort) min") }
+                Stepper(value: $pomoLong, in: 5...60) { LabeledContent("Pause longue", value: "\(pomoLong) min") }
+                Stepper(value: $pomoEvery, in: 2...8) { LabeledContent("Pause longue tous les", value: "\(pomoEvery) focus") }
+            } header: {
+                Text("Pomodoro")
+            } footer: {
+                note("Focus, pause courte, puis une pause longue tous les N focus ; les phases s'enchaînent seules avec un son à chaque changement. Lancé depuis l'onglet Focus ou le menu Minuteur.")
             }
         }
         .formStyle(.grouped)

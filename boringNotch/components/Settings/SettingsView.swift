@@ -1184,6 +1184,80 @@ struct Shelf: View {
 //    }
 //}
 
+/// Onglets du notch : affichés ou non, et dans quel ordre (glisser, ou clic droit → Monter / Descendre).
+private struct TabsSettingsSection: View {
+    @Default(.tabOrder) private var order
+    @Default(.hiddenTabs) private var hidden
+    @Default(.showCalendar) private var showCalendar
+    @State private var target: String?   // ligne survolée pendant un glisser
+
+    var body: some View {
+        let list = TabModel.ordered(order)
+        Section {
+            ForEach(list) { tab in
+                HStack(spacing: 8) {
+                    Image(systemName: "line.3.horizontal")
+                        .foregroundStyle(.tertiary)
+                        .help("Glisser pour changer l'ordre")
+                        .accessibilityHidden(true)
+                    Toggle(isOn: shown(tab.id)) {
+                        Label {
+                            Text(tab.label)
+                        } icon: {
+                            Image(systemName: tab.icon).foregroundStyle(.secondary).frame(width: 18)
+                        }
+                    }
+                    .disabled(tab.id == "home")
+                }
+                .contentShape(Rectangle())
+                // onMove ne marche pas dans un Form groupé sur macOS : glisser-déposer explicite, ligne sur ligne.
+                .draggable(tab.id) {
+                    Label(tab.label, systemImage: tab.icon)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .dropDestination(for: String.self) { items, _ in
+                    guard let id = items.first else { return false }
+                    order = TabOrder.move(id, onto: tab.id, in: list.map(\.id))
+                    return true
+                } isTargeted: { on in
+                    if on { target = tab.id } else if target == tab.id { target = nil }
+                }
+                .listRowBackground(target == tab.id ? Color.accentColor.opacity(0.15) : nil)
+                .contextMenu {
+                    Button("Monter") { move(tab.id, by: -1, in: list) }
+                        .disabled(tab.id == list.first?.id)
+                    Button("Descendre") { move(tab.id, by: 1, in: list) }
+                        .disabled(tab.id == list.last?.id)
+                }
+            }
+        } header: {
+            Text("Onglets")
+        } footer: {
+            Text("Glisser une ligne par sa poignée pour changer l'ordre, ou clic droit → Monter / Descendre. L'accueil reste toujours affiché.")
+                .foregroundStyle(.secondary).font(.caption)
+        }
+    }
+
+    /// Le calendrier garde son réglage historique (`showCalendar`), partagé avec la page Calendar.
+    private func shown(_ id: String) -> Binding<Bool> {
+        if id == "calendar" { return $showCalendar }
+        return Binding {
+            TabOrder.isShown(id, hidden: hidden, showCalendar: showCalendar)
+        } set: { on in
+            hidden.removeAll { $0 == id }
+            if !on { hidden.append(id) }
+        }
+    }
+
+    private func move(_ id: String, by delta: Int, in list: [TabModel]) {
+        var ids = list.map(\.id)
+        guard let i = ids.firstIndex(of: id), ids.indices.contains(i + delta) else { return }
+        ids.swapAt(i, i + delta)
+        order = ids
+    }
+}
+
 struct Appearance: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @Default(.mirrorShape) var mirrorShape
@@ -1213,6 +1287,8 @@ struct Appearance: View {
             } header: {
                 Text("General")
             }
+
+            TabsSettingsSection()
 
             Section {
                 Defaults.Toggle(key: .coloredSpectrogram) {
