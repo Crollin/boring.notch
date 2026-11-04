@@ -38,6 +38,7 @@ struct AgentSession: Identifiable, Equatable {
     var pending: String?        // action en attente de validation
     var questions: [AgentQuestion]?   // AskUserQuestion en attente de réponse
     var plan: String?                 // ExitPlanMode : plan (Markdown) en attente d'approbation
+    var lastMessage: String?    // fin du dernier message de l'agent (extrait affiché au repos)
     var awaitsReply = false     // le dernier message de l'agent appelle une réponse de l'utilisateur
     var state: AgentState = .thinking
     var file: String?
@@ -46,7 +47,12 @@ struct AgentSession: Identifiable, Equatable {
     var startedAt: Date
     var updatedAt: Date
 
-    var project: String { cwd.map { ($0 as NSString).lastPathComponent } ?? "?" }
+    var project: String {
+        let name = cwd.map { ($0 as NSString).lastPathComponent } ?? ""
+        return name.isEmpty || name == "/" ? "Sans projet" : name
+    }
+    /// Sessions techniques (génération de titre de T3 Code…) : jamais utiles à l'utilisateur.
+    static func isNoise(_ prompt: String?) -> Bool { prompt?.hasPrefix("Generate a title") == true }
     /// Sans événement depuis 5 min (interruption par Échap, terminal fermé : aucun hook Stop), la session est considérée inactive.
     var isActive: Bool { state != .done && Date().timeIntervalSince(updatedAt) < 300 }
 }
