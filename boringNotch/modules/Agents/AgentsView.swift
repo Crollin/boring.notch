@@ -88,7 +88,8 @@ private let secondary = Color.white.opacity(0.65)
 private let cardFill = Color.white.opacity(0.065)
 private let cardStroke = Color.white.opacity(0.08)
 
-private extension View {
+extension View {
+    /// Surface de tuile des onglets du notch (Agents, Focus).
     func agentSurface(selected: Bool = false, tint: Color = .effectiveAccent) -> some View {
         background(selected ? tint.opacity(0.12) : cardFill, in: RoundedRectangle(cornerRadius: 11))
             .overlay {
@@ -98,8 +99,8 @@ private extension View {
     }
 }
 
-/// One control treatment for navigation, approvals and question actions.
-private struct AgentActionStyle: ButtonStyle {
+/// One control treatment for navigation, approvals and question actions (also used by Focus).
+struct AgentActionStyle: ButtonStyle {
     var tint: Color? = nil
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

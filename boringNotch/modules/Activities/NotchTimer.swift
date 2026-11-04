@@ -18,6 +18,7 @@ final class NotchTimer: ObservableObject {
     @Published private(set) var end: Date?
     @Published private(set) var finishedAt: Date?
     @Published private(set) var phase: FocusPhase?      // nil = minuteur simple
+    @Published private(set) var duration: TimeInterval = 0   // durée de la phase en cours (barre de progression)
     private var task: Task<Void, Never>?
 
     var isOn: Bool { end != nil }
@@ -39,12 +40,20 @@ final class NotchTimer: ObservableObject {
 
     private func run(minutes: Int) {
         let duration = TimeInterval(minutes * 60)
+        self.duration = duration
         end = Date().addingTimeInterval(duration)
         // Task.sleep suit l'horloge continue : la veille du Mac compte dans le temps écoulé.
         task = Task { [weak self] in
             try? await Task.sleep(for: .seconds(duration))
             if !Task.isCancelled { self?.finish() }
         }
+    }
+
+    /// Pomodoro : termine la phase en cours et enchaîne la suivante, sans son.
+    func skip() {
+        guard let phase else { return }
+        task?.cancel()
+        begin(FocusCycle.next(after: phase, longEvery: Defaults[.pomodoroLongEvery]))
     }
 
     func stop() {
