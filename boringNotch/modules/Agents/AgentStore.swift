@@ -19,25 +19,26 @@ final class AgentStore: ObservableObject {
     /// ouvertes quand l'app redémarre ; elles se remettent à jour à leur prochain événement.
     private struct Saved: Codable {
         var id, source: String
-        var cwd, title, app: String?
+        var cwd, title, app, lastMessage: String?
         var awaitsReply: Bool?
         var startedAt, updatedAt: Date
     }
 
     private static let usageKey = "agentUsage"
+    private var noiseIDs: Set<String> = []   // sessions techniques ignorées jusqu'au prochain lancement
 
     init() {
         usage = (UserDefaults.standard.data(forKey: Self.usageKey)).flatMap { try? JSONDecoder().decode([String: UsageLimits].self, from: $0) } ?? [:]
         let saved = (UserDefaults.standard.data(forKey: Self.key)).flatMap { try? JSONDecoder().decode([Saved].self, from: $0) } ?? []
-        sessions = saved.filter { Date().timeIntervalSince($0.updatedAt) < 24 * 3600 }.map {
+        sessions = saved.filter { Date().timeIntervalSince($0.updatedAt) < 24 * 3600 && !AgentSession.isNoise($0.title) }.map {
             var s = AgentSession(id: $0.id, source: $0.source, cwd: $0.cwd, startedAt: $0.startedAt, updatedAt: $0.updatedAt)
-            s.title = $0.title; s.app = $0.app; s.state = .done; s.awaitsReply = $0.awaitsReply ?? false
+            s.title = $0.title; s.app = $0.app; s.state = .done; s.awaitsReply = $0.awaitsReply ?? false; s.lastMessage = $0.lastMessage
             return s
         }
     }
 
     private func save() {
-        let saved = sessions.map { Saved(id: $0.id, source: $0.source, cwd: $0.cwd, title: $0.title, app: $0.app, awaitsReply: $0.awaitsReply,
+        let saved = sessions.map { Saved(id: $0.id, source: $0.source, cwd: $0.cwd, title: $0.title, app: $0.app, lastMessage: $0.lastMessage, awaitsReply: $0.awaitsReply,
                                          startedAt: $0.startedAt, updatedAt: $0.updatedAt) }
         UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: Self.key)
     }
@@ -53,6 +54,16 @@ final class AgentStore: ObservableObject {
         if tail.contains(where: { $0.trimmingCharacters(in: junk).hasSuffix("?") }) { return true }
         let l = (tail.last ?? "").lowercased()
         return ["let me know", "dis-moi", "dites-moi", "tu veux que", "voulez-vous", "veux-tu"].contains { l.contains($0) }
+    }
+
+    /// Fin du message, sans balisage Markdown : c'est là que l'agent pose sa question.
+    static func excerpt(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let tail = lines.suffix(2).joined(separator: " ")
+            .replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+            .replacingOccurrences(of: "## ", with: "").replacingOccurrences(of: "- ", with: "")
+        return tail.isEmpty ? nil : String(tail.suffix(240))
     }
 
     var activeCount: Int { sessions.filter(\.isActive).count }
@@ -101,7 +112,13 @@ final class AgentStore: ObservableObject {
     func apply(_ env: AgentEnvelope, reply: ((String?) -> Void)? = nil) {
         let p = env.payload
         if let l = p.rate_limits { applyUsage(l, source: env.source) }
-        guard let sid = p.session_id else { return }
+        guard let sid = p.session_id, !noiseIDs.contains(sid) else { return }
+        if AgentSession.isNoise(p.prompt) {
+            noiseIDs.insert(sid)
+            sessions.removeAll { $0.id == sid }
+            save()
+            return
+        }
 
         // Une nouvelle session vue via la status line est inactive (état .done) jusqu'à son prochain événement.
         var s = sessions.first { $0.id == sid }
@@ -137,6 +154,7 @@ final class AgentStore: ObservableObject {
         case "Stop":
             s.state = .done
             s.awaitsReply = Self.asksForReply(p.last_assistant_message)
+            s.lastMessage = Self.excerpt(p.last_assistant_message)
             lastFinished = .now
             for i in s.steps.indices where !s.steps[i].done { s.steps[i].duration = Date().timeIntervalSince(s.steps[i].started) }
         case "SessionEnd":

@@ -204,24 +204,37 @@ struct AgentsView: View {
         .frame(height: 24)
     }
 
+    /// Liste du sélecteur : ce qui demande l'utilisateur d'abord, puis ce qui travaille,
+    /// puis seulement les 5 conversations au repos les plus récentes (le reste n'est que du bruit).
+    private var groups: [(title: String, items: [AgentSession])] {
+        let all = store.sessions
+        let attention = all.filter { $0.state == .waiting || ($0.awaitsReply && !$0.isActive) }
+        let ids = Set(attention.map(\.id))
+        let working = all.filter { $0.isActive && !ids.contains($0.id) }
+        let taken = ids.union(working.map(\.id))
+        let recent = Array(all.filter { !taken.contains($0.id) }.prefix(5))
+        return [("À traiter", attention), ("Au travail", working), ("Récentes", recent)].filter { !$0.1.isEmpty }
+    }
+
     private func sessionPicker(_ s: AgentSession) -> some View {
-        Menu {
-            ForEach(store.sessions) { candidate in
-                Button {
-                    selected = candidate.id
-                } label: {
-                    Label("\(candidate.source.capitalized) · \(candidate.project) — \(candidate.title ?? candidate.stateText)",
-                          systemImage: candidate.id == s.id ? "checkmark" : agentIcon(candidate.source))
+        let hidden = store.sessions.count - groups.reduce(0) { $0 + $1.items.count }
+        return Menu {
+            ForEach(groups, id: \.title) { group in
+                Section(group.title) {
+                    ForEach(group.items) { candidate in
+                        Button { selected = candidate.id } label: {
+                            Label("\(candidate.project) — \(String((candidate.title ?? candidate.stateText).prefix(52)))",
+                                  systemImage: candidate.id == s.id ? "checkmark" : agentIcon(candidate.source))
+                        }
+                    }
                 }
             }
+            if hidden > 0 { Text("+ \(hidden) plus anciennes masquées") }
         } label: {
             HStack(spacing: 6) {
                 Circle().fill(s.tint).frame(width: 6, height: 6)
                 Text(s.project).lineLimit(1).truncationMode(.middle)
                 if store.sessions.count > 1 {
-                    Text("\(store.sessions.count)")
-                        .monospacedDigit()
-                        .foregroundStyle(secondary)
                     Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
                 }
             }
@@ -300,11 +313,20 @@ struct AgentsView: View {
 
     private func stepList(_ s: AgentSession) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            if s.steps.isEmpty {
+            if !s.isActive, let msg = s.lastMessage {
+                // Au repos : ce que l'agent a dit en dernier, c'est ce qu'on veut relire (surtout sa question).
+                HStack(alignment: .top, spacing: 8) {
+                    Capsule().fill(s.awaitsReply ? s.tint : .white.opacity(0.18)).frame(width: 2)
+                    Text(msg).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(4).fixedSize(horizontal: false, vertical: true)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .help(msg)
+            } else if s.steps.isEmpty {
                 Text(s.isActive ? s.state.label : "En attente d'un prompt")
                     .font(.system(size: 11)).foregroundStyle(secondary)
             }
-            let steps = Array(s.steps.suffix(3))
+            let steps = s.isActive || s.lastMessage == nil ? Array(s.steps.suffix(3)) : []
             ForEach(Array(steps.enumerated()), id: \.element.id) { i, step in
                 HStack(spacing: 9) {
                     ZStack {
@@ -354,6 +376,8 @@ private struct ActivityCard: View {
     private var waiting: Bool { session.state == .waiting }
     private var running: Bool { session.isActive && (step.map { !$0.done } ?? false) }
     private var tint: Color { session.tint }
+    /// Au repos après une réponse de l'agent : la carte propose de reprendre la main.
+    private var idleReply: Bool { !waiting && !session.isActive && session.lastMessage != nil }
     private var diff: LineDiff? {
         guard !waiting, step?.isEdit == true, let file = step?.file else { return nil }
         return session.diffs[file]
@@ -362,7 +386,7 @@ private struct ActivityCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 7) {
-                Image(systemName: waiting ? "exclamationmark.shield.fill" : (step?.symbol ?? "folder.fill"))
+                Image(systemName: waiting ? "exclamationmark.shield.fill" : idleReply ? (session.awaitsReply ? "bubble.left.fill" : "checkmark") : (step?.symbol ?? "folder.fill"))
                     .font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
                     .frame(width: 24, height: 24)
                     .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tint.opacity(0.16)))
@@ -379,7 +403,11 @@ private struct ActivityCard: View {
                     .help(detail)
             }
             Spacer(minLength: 0)
-            if waiting {
+            if idleReply {
+                pillButton(session.awaitsReply ? "Répondre" : "Ouvrir", tint: session.awaitsReply ? .effectiveAccent : nil) {
+                    AgentStore.shared.openTerminal(session)
+                }
+            } else if waiting {
                 HStack(spacing: 8) {
                     decisionButton("Refuser", tint: nil) { AgentStore.shared.decide(session.id, allow: false) }
                     decisionButton("Autoriser", tint: .effectiveAccent) { AgentStore.shared.decide(session.id, allow: true) }
@@ -409,12 +437,14 @@ private struct ActivityCard: View {
 
     private var title: String {
         if waiting { return "Validation requise" }
+        if idleReply { return session.awaitsReply ? "Votre tour" : "Terminé" }
         if let f = step?.file { return (f as NSString).lastPathComponent }
         return step?.kind ?? session.project
     }
 
     private var status: String {
         if waiting { return "En attente de votre accord" }
+        if idleReply { return session.awaitsReply ? "\(session.source.capitalized) attend votre réponse" : "Prêt pour un prompt" }
         guard let step else { return session.stateText }
         if let d = step.duration { return String(format: "Terminé · %.1f s", d) }
         if !running { return session.stateText }
@@ -423,6 +453,7 @@ private struct ActivityCard: View {
 
     private var detail: String? {
         if waiting { return session.pending }
+        if idleReply { return nil }
         guard let step, step.file == nil else { return nil }
         return step.label
     }
