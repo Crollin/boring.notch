@@ -17,12 +17,27 @@ final class NotchTimer: ObservableObject {
 
     @Published private(set) var end: Date?
     @Published private(set) var finishedAt: Date?
+    @Published private(set) var phase: FocusPhase?      // nil = minuteur simple
     private var task: Task<Void, Never>?
 
     var isOn: Bool { end != nil }
 
     func start(minutes: Int) {
         stop()
+        run(minutes: minutes)
+    }
+
+    func startPomodoro() {
+        stop()
+        begin(.focus(round: 1))
+    }
+
+    private func begin(_ p: FocusPhase) {
+        phase = p
+        run(minutes: FocusCycle.minutes(p, focus: Defaults[.pomodoroFocusMinutes], short: Defaults[.pomodoroShortMinutes], long: Defaults[.pomodoroLongMinutes]))
+    }
+
+    private func run(minutes: Int) {
         let duration = TimeInterval(minutes * 60)
         end = Date().addingTimeInterval(duration)
         // Task.sleep suit l'horloge continue : la veille du Mac compte dans le temps écoulé.
@@ -36,6 +51,7 @@ final class NotchTimer: ObservableObject {
         task?.cancel(); task = nil
         end = nil
         finishedAt = nil
+        phase = nil
     }
 
     func toggle() {
@@ -43,6 +59,11 @@ final class NotchTimer: ObservableObject {
     }
 
     private func finish() {
+        if let phase {
+            NSSound(named: "Glass")?.play()
+            begin(FocusCycle.next(after: phase, longEvery: Defaults[.pomodoroLongEvery]))
+            return
+        }
         end = nil
         finishedAt = .now
         NSSound(named: "Glass")?.play()
@@ -53,11 +74,22 @@ final class NotchTimer: ObservableObject {
         }
     }
 
+    private func pillStyle() -> (String, Color, String) {
+        let total = Defaults[.pomodoroLongEvery]
+        switch phase {
+        case .focus(let r): return ("brain.head.profile", .orange, "Pomodoro — focus \(r)/\(total) — cliquer pour arrêter")
+        case .shortBreak(let r): return ("cup.and.saucer", .green, "Pomodoro — pause \(r)/\(total) — cliquer pour arrêter")
+        case .longBreak: return ("cup.and.saucer", .green, "Pomodoro — pause longue — cliquer pour arrêter")
+        case nil: return ("timer", .orange, "Minuteur — cliquer pour arrêter")
+        }
+    }
+
     func activity(now: Date, height: CGFloat) -> Activity? {
         if let end {
+            let (icon, color, help) = pillStyle()
             return Activity(id: "timer", priority: 60, view: AnyView(
-                ActivityPill(height: height, help: "Minuteur — cliquer pour arrêter", action: { NotchTimer.shared.stop() }) {
-                    Image(systemName: "timer").foregroundStyle(.orange)
+                ActivityPill(height: height, help: help, action: { NotchTimer.shared.stop() }) {
+                    Image(systemName: icon).foregroundStyle(color)
                     Text(activityDuration(end.timeIntervalSince(now).rounded(.up)))
                 }
             ))
@@ -83,6 +115,8 @@ struct TimerMenu: View {
             ForEach(NotchTimer.presets, id: \.self) { m in
                 Button("\(m) min") { timer.start(minutes: m) }
             }
+            Divider()
+            Button("Pomodoro") { timer.startPomodoro() }
             if timer.isOn {
                 Divider()
                 Button("Arrêter") { timer.stop() }

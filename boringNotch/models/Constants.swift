@@ -182,6 +182,10 @@ extension Defaults.Keys {
     static let dictationSubstitutions = Key<String>("dictationSubstitutions", default: "")
     static let dictationSuggestions = Key<[String]>("dictationSuggestions", default: [])   // règles « avant => après » apprises, à valider
     static let timerShortcutMinutes = Key<Int>("timerShortcutMinutes", default: 25)
+    static let pomodoroFocusMinutes = Key<Int>("pomodoroFocusMinutes", default: 25)
+    static let pomodoroShortMinutes = Key<Int>("pomodoroShortMinutes", default: 5)
+    static let pomodoroLongMinutes = Key<Int>("pomodoroLongMinutes", default: 15)
+    static let pomodoroLongEvery = Key<Int>("pomodoroLongEvery", default: 4)
     static let activityCommands = Key<Bool>("activityCommands", default: true)
     static let activityDisks = Key<Bool>("activityDisks", default: true)
     static let activityHeadsets = Key<Bool>("activityHeadsets", default: true)
