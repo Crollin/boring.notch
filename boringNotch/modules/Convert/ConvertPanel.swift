@@ -2,11 +2,12 @@
 //  ConvertPanel.swift
 //  boringNotch
 //
-//  Conversion intégrée au Shelf : quand un seul fichier convertible est déposé, le panneau du Shelf
-//  propose les formats. Le fichier est aussi ajouté au Shelf comme d'habitude. Résultat dans ~/Downloads.
+//  Conversion intégrée au Shelf : quand un ou plusieurs fichiers convertibles sont déposés sur la tuile « Convertir »,
+//  le panneau du Shelf propose les formats communs. Résultat dans le dossier choisi, sinon ~/Downloads.
 //
 
 import AppKit
+import Defaults
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -14,20 +15,30 @@ import UniformTypeIdentifiers
 final class ConvertStore: ObservableObject {
     static let shared = ConvertStore()
 
-    enum Status: Equatable { case idle, working(ConvertTarget), done(URL), failed(String) }
+    enum Status: Equatable {
+        case idle
+        case working(ConvertTarget, done: Int)
+        case done([URL], failed: Int)
+        case failed(String)
+    }
 
-    @Published private(set) var file: URL?
+    @Published private(set) var files: [URL] = []
     @Published private(set) var status: Status = .idle
-    /// Tuile « Convertir » visible pendant le glisser d'un fichier convertible.
+    /// Tuile « Convertir » visible pendant le glisser de fichiers convertibles.
     @Published private(set) var showDropTile = false
+    @Published private(set) var outputFolder: URL?
     private var hideTask: Task<Void, Never>?
+
+    init() {
+        outputFolder = Self.resolveOutputFolder()
+    }
 
     /// Suit le glisser au-dessus de la notch. Le masquage est différé : passer d'une zone de drop à l'autre
     /// fait brièvement retomber le ciblage à false, la tuile ne doit pas disparaître sous le curseur.
     func dragChanged(_ active: Bool) {
         hideTask?.cancel()
         if active {
-            if !showDropTile { showDropTile = Self.draggedFileIsConvertible() }
+            if !showDropTile { showDropTile = Self.draggedFilesAreConvertible() }
             return
         }
         hideTask = Task {
@@ -37,52 +48,79 @@ final class ConvertStore: ObservableObject {
         }
     }
 
-    /// Lit seulement l'URL sur le pasteboard de drag (pas le contenu) : un seul fichier, d'un type convertible.
-    private static func draggedFileIsConvertible() -> Bool {
+    /// Lit seulement les URL sur le pasteboard de drag (pas le contenu) : des fichiers ayant au moins un format commun.
+    private static func draggedFilesAreConvertible() -> Bool {
         let urls = NSPasteboard(name: .drag).readObjects(forClasses: [NSURL.self],
                                                          options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        return urls.count == 1 && !FileConverter.targets(for: urls[0]).isEmpty
+        return !FileConverter.targets(for: urls).isEmpty
     }
 
-    /// Drop sur la tuile : retourne false si ce n'est pas un fichier (le drop est refusé).
+    /// Drop sur la tuile : retourne false si ce ne sont pas des fichiers (le drop est refusé).
     func offer(_ providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first,
-              provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else { return false }
+        let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+        guard !fileProviders.isEmpty else { return false }
         hideTask?.cancel()
         showDropTile = false
         clear()
         Task {
-            guard let url = await provider.extractFileURL(), !FileConverter.targets(for: url).isEmpty else { return }
-            file = url
+            var urls: [URL] = []
+            for provider in fileProviders {
+                if let url = await provider.extractFileURL() { urls.append(url) }
+            }
+            guard !FileConverter.targets(for: urls).isEmpty else { return }
+            files = urls
             status = .idle
         }
         return true
     }
 
     func clear() {
-        file = nil
+        files = []
         status = .idle
     }
 
+    /// Convertit le lot un fichier après l'autre ; un échec n'arrête pas les suivants.
     func convert(to target: ConvertTarget) {
-        guard let src = file, !isWorking else { return }
-        status = .working(target)
+        guard !files.isEmpty, !isWorking else { return }
+        let batch = files
+        status = .working(target, done: 0)
         Task {
-            let scoped = src.startAccessingSecurityScopedResource()
-            defer { if scoped { src.stopAccessingSecurityScopedResource() } }
-            do {
-                let data: Data
-                if FileConverter.documentType(of: src) != nil {
-                    data = try FileConverter.convertDocument(src)
-                } else {
-                    data = try await Task.detached(priority: .userInitiated) {
-                        try FileConverter.convertImage(src, to: target)
-                    }.value
+            let (dir, scoped) = outputDirectory()
+            defer { if scoped { dir?.stopAccessingSecurityScopedResource() } }
+            guard let dir else { status = .failed("Dossier de sortie introuvable."); return }
+
+            var outputs: [URL] = []
+            var lastError: Error?
+            for (i, src) in batch.enumerated() {
+                status = .working(target, done: i)
+                do {
+                    outputs.append(try FileConverter.save(try await Self.convert(src, to: target),
+                                                          from: src, ext: target.fileExtension, in: dir))
+                } catch {
+                    lastError = error
                 }
-                status = .done(try FileConverter.save(data, from: src, ext: target.fileExtension))
-            } catch {
-                status = .failed(error.localizedDescription)
             }
+            if outputs.isEmpty, let lastError {
+                status = .failed(lastError.localizedDescription)
+            } else {
+                status = .done(outputs, failed: batch.count - outputs.count)
+            }
+        }
+    }
+
+    private static func convert(_ src: URL, to target: ConvertTarget) async throws -> Data {
+        let scoped = src.startAccessingSecurityScopedResource()
+        defer { if scoped { src.stopAccessingSecurityScopedResource() } }
+        let isDocument = FileConverter.documentType(of: src) != nil
+        switch target {
+        case .markdown where isDocument:
+            return try MarkdownConverter.document(src)
+        case .markdown:
+            return try await Task.detached(priority: .userInitiated) { try MarkdownConverter.pdf(src) }.value
+        case _ where isDocument:
+            return try FileConverter.convertDocument(src)
+        default:
+            return try await Task.detached(priority: .userInitiated) { try FileConverter.convertImage(src, to: target) }.value
         }
     }
 
@@ -90,20 +128,66 @@ final class ConvertStore: ObservableObject {
         if case .working = status { return true }
         return false
     }
+
+    // MARK: - Dossier de sortie
+
+    /// Dossier choisi s'il existe encore (accès sandbox ouvert, à refermer), sinon Téléchargements.
+    private func outputDirectory() -> (URL?, scoped: Bool) {
+        if let folder = Self.resolveOutputFolder() {
+            let scoped = folder.startAccessingSecurityScopedResource()
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDir), isDir.boolValue {
+                return (folder, scoped)
+            }
+            if scoped { folder.stopAccessingSecurityScopedResource() }
+        }
+        outputFolder = nil
+        return (try? FileManager.default.url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: false), false)
+    }
+
+    private static func resolveOutputFolder() -> URL? {
+        guard let data = Defaults[.convertOutputFolder] else { return nil }
+        let (url, refreshed) = Bookmark(data: data).resolve()
+        if let refreshed { Defaults[.convertOutputFolder] = refreshed }
+        return url
+    }
+
+    func chooseOutputFolder() {
+        SharingStateManager.shared.beginInteraction() // garde la notch ouverte pendant le sélecteur
+        defer { SharingStateManager.shared.endInteraction() }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choisir"
+        panel.message = "Dossier où enregistrer les fichiers convertis"
+        panel.directoryURL = outputFolder
+        guard panel.runModal() == .OK, let url = panel.url, let bookmark = try? Bookmark(url: url) else { return }
+        Defaults[.convertOutputFolder] = bookmark.data
+        outputFolder = url
+    }
+
+    func resetOutputFolder() {
+        Defaults[.convertOutputFolder] = nil
+        outputFolder = nil
+    }
 }
 
 /// Contenu du panneau du Shelf pendant une proposition de conversion.
 struct ConvertPanel: View {
-    let file: URL
+    let files: [URL]
     @ObservedObject private var store = ConvertStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: file.path))
+                Image(nsImage: files.count == 1 ? NSWorkspace.shared.icon(forFile: files[0].path)
+                                                : NSWorkspace.shared.icon(for: .folder))
                     .resizable().frame(width: 36, height: 36)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(file.lastPathComponent).font(.headline).lineLimit(1).truncationMode(.middle)
+                    Text(files.count == 1 ? files[0].lastPathComponent : "\(files.count) fichiers")
+                        .font(.headline).lineLimit(1).truncationMode(.middle)
                     statusLine
                 }
                 Spacer()
@@ -115,13 +199,13 @@ struct ConvertPanel: View {
             }
 
             HStack(spacing: 8) {
-                ForEach(FileConverter.targets(for: file)) { target in
+                ForEach(FileConverter.targets(for: files)) { target in
                     Button { store.convert(to: target) } label: {
                         VStack(spacing: 5) {
-                            if store.status == .working(target) {
+                            if case .working(target, _) = store.status {
                                 ProgressView().controlSize(.small)
                             } else {
-                                Image(systemName: target == .pdf ? "doc" : "photo")
+                                Image(systemName: target == .markdown ? "text.alignleft" : target == .pdf ? "doc" : "photo")
                             }
                             Text(target.label).font(.caption.weight(.semibold))
                         }
@@ -133,29 +217,60 @@ struct ConvertPanel: View {
                     .disabled(store.isWorking)
                 }
             }
+
+            destinationLine
         }
+    }
+
+    private var destinationLine: some View {
+        HStack(spacing: 6) {
+            Button { store.chooseOutputFolder() } label: {
+                Label(store.outputFolder?.lastPathComponent ?? "Téléchargements", systemImage: "folder")
+                    .font(.caption).lineLimit(1).truncationMode(.middle)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.gray)
+            .help("Choisir le dossier de sortie")
+            if store.outputFolder != nil {
+                Button { store.resetOutputFolder() } label: {
+                    Image(systemName: "arrow.uturn.backward").font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.gray)
+                .help("Revenir à Téléchargements")
+            }
+        }
+        .disabled(store.isWorking)
     }
 
     @ViewBuilder
     private var statusLine: some View {
         switch store.status {
-        case .done(let url):
+        case .working(_, let done) where files.count > 1:
+            Text("Conversion \(done + 1)/\(files.count)…").font(.caption).foregroundStyle(.gray)
+        case .done(let urls, let failed):
             Button {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
+                NSWorkspace.shared.activateFileViewerSelecting(urls)
             } label: {
-                Label("\(url.lastPathComponent) → Téléchargements", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green).font(.caption).lineLimit(1)
+                Label(doneText(urls, failed), systemImage: failed == 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    .foregroundStyle(failed == 0 ? .green : .orange).font(.caption).lineLimit(1)
             }
             .buttonStyle(.plain)
         case .failed(let message):
             Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.caption)
         default:
-            Text(sizeText).font(.caption).foregroundStyle(.gray)
+            Text(sizeText).font(.caption).foregroundStyle(.gray).lineLimit(1)
         }
     }
 
+    private func doneText(_ urls: [URL], _ failed: Int) -> String {
+        let folder = urls.first?.deletingLastPathComponent().lastPathComponent ?? ""
+        let what = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) fichiers"
+        return failed == 0 ? "\(what) → \(folder)" : "\(what) → \(folder), \(failed) échec\(failed > 1 ? "s" : "")"
+    }
+
     private var sizeText: String {
-        let bytes = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        let bytes = files.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) }
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 }

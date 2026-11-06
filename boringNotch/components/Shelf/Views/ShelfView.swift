@@ -86,8 +86,8 @@ struct ShelfView: View {
 
     var content: some View {
         Group {
-            if let file = convert.file {
-                ConvertPanel(file: file)
+            if !convert.files.isEmpty {
+                ConvertPanel(files: convert.files)
             } else if tvm.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "tray.and.arrow.down")
