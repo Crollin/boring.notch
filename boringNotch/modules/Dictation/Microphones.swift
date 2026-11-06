@@ -50,17 +50,6 @@ enum Microphones {
     /// Micro réellement utilisé pour ce réglage (affichage).
     static func effective(_ choice: String) -> MicDevice? { resolve(choice) ?? systemDefault() }
 
-    /// À appeler avant de lire le format ou d'installer le tap. nil = micro du système.
-    static func apply(_ device: MicDevice?, to engine: AVAudioEngine) {
-        guard let device else { return }
-        let set = { (unit: AudioUnit) in
-            var id = device.id
-            AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &id, UInt32(MemoryLayout<AudioDeviceID>.size))
-        }
-        if #available(macOS 27, *) { engine.inputNode.withAudioUnit { if let u = $0 { set(u) } } }
-        else if let u = engine.inputNode.audioUnit { set(u) }
-    }
-
     // MARK: CoreAudio
 
     private static func device(_ id: AudioDeviceID) -> MicDevice? {
