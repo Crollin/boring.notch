@@ -212,6 +212,8 @@ extension Defaults.Keys {
     static let quickShareProvider = Key<String>("quickShareProvider", default: QuickShareProvider.defaultProvider.id)
     static let copyOnDrag = Key<Bool>("copyOnDrag", default: false)
     static let autoRemoveShelfItems = Key<Bool>("autoRemoveShelfItems", default: false)
+    /// Dossier de sortie des conversions (bookmark sandbox). nil = Téléchargements.
+    static let convertOutputFolder = Key<Data?>("convertOutputFolder", default: nil)
     static let expandedDragDetection = Key<Bool>("expandedDragDetection", default: true)
     
     // MARK: Calendar

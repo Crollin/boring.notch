@@ -2,7 +2,8 @@
 //  FileConverter.swift
 //  boringNotch
 //
-//  Conversion 100 % locale (ImageIO, PDFKit, AppKit) : images → JPEG/PNG/AVIF/PDF, documents → PDF.
+//  Conversion 100 % locale (ImageIO, PDFKit, AppKit) : images → JPEG/PNG/AVIF/PDF, documents → PDF/Markdown,
+//  PDF → Markdown (voir MarkdownConverter).
 //  Aucun réseau, aucun binaire externe (l'app est sandboxée).
 //
 
@@ -12,28 +13,36 @@ import PDFKit
 import UniformTypeIdentifiers
 
 enum ConvertTarget: String, CaseIterable, Identifiable {
-    case jpeg, png, avif, pdf
+    case jpeg, png, avif, pdf, markdown
 
     var id: String { rawValue }
-    var label: String { rawValue.uppercased() }
-    var fileExtension: String { self == .jpeg ? "jpg" : rawValue }
+    var label: String { self == .markdown ? "MD" : rawValue.uppercased() }
+    var fileExtension: String {
+        switch self {
+        case .jpeg: return "jpg"
+        case .markdown: return "md"
+        default: return rawValue
+        }
+    }
     var utType: UTType {
         switch self {
         case .jpeg: return .jpeg
         case .png: return .png
         case .avif: return UTType("public.avif") ?? .image
         case .pdf: return .pdf
+        case .markdown: return UTType("net.daringfireball.markdown") ?? .plainText
         }
     }
 }
 
 enum ConvertError: LocalizedError {
-    case unreadable, encodingFailed
+    case unreadable, encodingFailed, noText
 
     var errorDescription: String? {
         switch self {
         case .unreadable: return "Fichier illisible."
         case .encodingFailed: return "Échec de l'encodage."
+        case .noText: return "Aucun texte trouvé."
         }
     }
 }
@@ -67,12 +76,22 @@ enum FileConverter {
 
     static func targets(for url: URL) -> [ConvertTarget] {
         guard let type = contentType(of: url) else { return [] }
+        if type.conforms(to: .pdf) { return [.markdown] }
         if type.conforms(to: .image) {
             return ConvertTarget.allCases.filter { target in
                 target.utType != type && (target == .pdf || writableImageTypes.contains(target.utType.identifier))
             }
         }
-        return documentType(of: url) == nil ? [] : [.pdf]
+        return documentType(of: url) == nil ? [] : [.pdf, .markdown]
+    }
+
+    /// Formats communs à tous les fichiers (lot) : un lot mélangeant images et PDF n'en a aucun.
+    static func targets(for urls: [URL]) -> [ConvertTarget] {
+        guard let first = urls.first else { return [] }
+        return urls.dropFirst().reduce(targets(for: first)) { common, url in
+            let t = targets(for: url)
+            return common.filter(t.contains)
+        }
     }
 
     // MARK: - Images (thread-safe, à appeler hors du main thread)
@@ -170,9 +189,8 @@ enum FileConverter {
 
     // MARK: - Sortie
 
-    /// Écrit dans ~/Downloads sans jamais écraser : « nom.ext », puis « nom 2.ext », etc.
-    static func save(_ data: Data, from src: URL, ext: String) throws -> URL {
-        let dir = try FileManager.default.url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+    /// Écrit dans `dir` sans jamais écraser : « nom.ext », puis « nom 2.ext », etc.
+    static func save(_ data: Data, from src: URL, ext: String, in dir: URL) throws -> URL {
         let base = src.deletingPathExtension().lastPathComponent
         for n in 1...999 {
             let name = n == 1 ? "\(base).\(ext)" : "\(base) \(n).\(ext)"
