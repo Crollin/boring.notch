@@ -74,13 +74,64 @@ final class AudioFeed: @unchecked Sendable {
         if o.frameLength > 0 { out.yield(AnalyzerInput(buffer: o)) }
     }
 
-    // ponytail: copie float32 seulement (format du micro de l'engine) ; autre format = tampon ignoré.
+    // ponytail: copie float32 seulement (format demandé à la capture) ; autre format = tampon ignoré.
     private static func copy(_ b: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
         guard let s = b.floatChannelData, let c = AVAudioPCMBuffer(pcmFormat: b.format, frameCapacity: b.frameLength),
               let d = c.floatChannelData else { return nil }
         c.frameLength = b.frameLength
         for ch in 0..<Int(b.format.channelCount) { d[ch].update(from: s[ch], count: Int(b.frameLength)) }
         return c
+    }
+}
+
+/// Capture du micro par AVCaptureSession : choisit le micro indépendamment de la sortie audio.
+/// (AVAudioEngine partage une seule unité audio entre entrée et sortie : forcer le micro du Mac avec un casque Bluetooth en sortie
+/// faisait lever des exceptions ObjC fatales — -10868, « format.sampleRate == inputHWFormat.sampleRate ».)
+/// Tout passe par une file série : startRunning peut bloquer sur CoreAudio, jamais sur le main.
+@available(macOS 26.0, *)
+final class MicCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
+    private let session = AVCaptureSession()
+    private let queue = DispatchQueue(label: "boringnotch.dictation.audio", qos: .userInitiated)
+    private let feed: AudioFeed
+    private let meter: LevelMeter
+
+    init(feed: AudioFeed, meter: LevelMeter) { self.feed = feed; self.meter = meter }
+
+    /// mic nil = micro du système.
+    func start(_ mic: MicDevice?) async throws {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            queue.async { c.resume(with: Result { try self.open(mic) }) }
+        }
+    }
+
+    func stop() { queue.async { self.session.stopRunning() } }
+
+    private func open(_ mic: MicDevice?) throws {
+        guard let device = mic.flatMap({ AVCaptureDevice(uniqueID: $0.uid) }) ?? AVCaptureDevice.default(for: .audio) else { throw DictationError.noInput }
+        let output = AVCaptureAudioDataOutput()
+        output.audioSettings = [AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 32,
+                                AVLinearPCMIsFloatKey: true, AVLinearPCMIsNonInterleaved: true]
+        output.setSampleBufferDelegate(self, queue: queue)
+        let input = try AVCaptureDeviceInput(device: device)
+        session.beginConfiguration()
+        session.inputs.forEach(session.removeInput); session.outputs.forEach(session.removeOutput)
+        guard session.canAddInput(input), session.canAddOutput(output) else { session.commitConfiguration(); throw DictationError.noInput }
+        session.addInput(input); session.addOutput(output)
+        session.commitConfiguration()
+        session.startRunning()
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sb: CMSampleBuffer, from connection: AVCaptureConnection) {
+        let n = CMSampleBufferGetNumSamples(sb)
+        guard n > 0, let fd = CMSampleBufferGetFormatDescription(sb),
+              let buf = AVAudioPCMBuffer(pcmFormat: AVAudioFormat(cmAudioFormatDescription: fd), frameCapacity: AVAudioFrameCount(n)) else { return }
+        buf.frameLength = AVAudioFrameCount(n)
+        guard CMSampleBufferCopyPCMDataIntoAudioBufferList(sb, at: 0, frameCount: Int32(n), into: buf.mutableAudioBufferList) == noErr,
+              let ch = buf.floatChannelData?[0] else { return }
+        var sum: Float = 0
+        for i in 0..<n { sum += ch[i] * ch[i] }
+        meter.push(min(1, (sum / Float(n)).squareRoot() * 6)) // RMS, gain visuel
+        feed.push(buf)
     }
 }
 
@@ -100,11 +151,10 @@ final class Dictation: ObservableObject {
     private(set) var startedAt = Date()
     let meter = LevelMeter()
 
-    private let engine = AVAudioEngine()
+    private lazy var capture = MicCapture(feed: feed, meter: meter)
     private var analyzer: SpeechAnalyzer?
     private let feed = AudioFeed()
     private var startTask: Task<Void, Never>?        // préparation en cours : stop() l'attend au lieu de la jeter
-    private var configObserver: NSObjectProtocol?    // changement de micro / de format en cours de dictée
     private var tail = ""                            // texte encore volatil (pas finalisé) : récupéré si la finalisation échoue
     private var results: Task<Void, Error>?
     private var chunks: [Task<String, Never>] = []
@@ -145,10 +195,8 @@ final class Dictation: ObservableObject {
             // Le micro écoute AVANT tout le reste : ce qui est dit pendant la préparation est gardé (AudioFeed) puis rejoué.
             feed.reset()
             let mic = Microphones.resolve(Defaults[.dictationMic])
-            try Self.startCapture(engine, feed, meter, mic)
-            configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.restartCapture() }
-            }
+            try await capture.start(mic)
+            if stale() { capture.stop(); return }
             log.info("micro « \((mic ?? Microphones.systemDefault())?.name ?? "?", privacy: .public) » ouvert après \(Int(Date().timeIntervalSince(self.startedAt) * 1000)) ms")
 
             selection = await TextInserter.selectedText().map { String($0.prefix(4000)) }
@@ -195,17 +243,7 @@ final class Dictation: ObservableObject {
         }
     }
 
-    /// Le micro a changé en cours de route (casque Bluetooth qui bascule, périphérique branché) : l'engine s'est arrêté, on le relance.
-    private func restartCapture() {
-        guard phase != .idle else { return }
-        do { try Self.startCapture(engine, feed, meter, Microphones.resolve(Defaults[.dictationMic])); log.info("micro relancé après changement de configuration") }
-        catch { log.error("micro non relancé : \(error.localizedDescription, privacy: .public)") }
-    }
-
-    private func stopCapture() {
-        if let o = configObserver { NotificationCenter.default.removeObserver(o); configObserver = nil }
-        engine.stop(); engine.inputNode.removeTap(onBus: 0)
-    }
+    private func stopCapture() { capture.stop() }
 
     /// Un segment est figé : on le nettoie tout de suite, en série, pendant que la suite est dictée.
     private func finalized(_ s: String, partial p: String) {
@@ -333,27 +371,6 @@ final class Dictation: ObservableObject {
 
     fileprivate func setPartial(_ s: String, tail t: String) { partial = s; tail = t }
 
-    // nonisolated : le tap tourne sur le thread audio, il ne doit pas hériter du MainActor.
-    private nonisolated static func startCapture(_ engine: AVAudioEngine, _ feed: AudioFeed, _ meter: LevelMeter,
-                                                 _ mic: MicDevice?) throws {
-        Microphones.apply(mic, to: engine) // avant de lire le format : le micro choisi peut avoir un autre taux d'échantillonnage
-        let node = engine.inputNode
-        node.removeTap(onBus: 0)
-        engine.prepare()
-        // inputFormat, pas outputFormat : après un changement de micro, ce dernier reste périmé (16 kHz du casque au lieu de 48 kHz)
-        // et installTap lève alors une exception (crash).
-        let inFormat = node.inputFormat(forBus: 0)
-        guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else { throw DictationError.noInput } // route Bluetooth en transition
-        node.installTap(onBus: 0, bufferSize: 1024, format: inFormat) { buffer, _ in
-            if let ch = buffer.floatChannelData?[0], buffer.frameLength > 0 {
-                var sum: Float = 0
-                for i in 0..<Int(buffer.frameLength) { sum += ch[i] * ch[i] }
-                meter.push(min(1, (sum / Float(buffer.frameLength)).squareRoot() * 6)) // RMS, gain visuel
-            }
-            feed.push(buffer)
-        }
-        try engine.start()
-    }
 }
 
 enum DictationError: Error {
