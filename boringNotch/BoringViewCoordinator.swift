@@ -166,10 +166,8 @@ class BoringViewCoordinator: ObservableObject {
             helloAnimationRunning = firstLaunch
 
             if Defaults[.hudReplacement] {
-                let authorized = await XPCHelperClient.shared.isAccessibilityAuthorized()
-                if !authorized {
-                    Defaults[.hudReplacement] = false
-                } else {
+                // Réglage conservé même sans autorisation : l'observer d'accessibilité démarre l'interception dès qu'elle revient.
+                if await XPCHelperClient.shared.isAccessibilityAuthorized() {
                     await MediaKeyInterceptor.shared.start(promptIfNeeded: false)
                 }
             }
