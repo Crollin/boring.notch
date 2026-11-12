@@ -21,6 +21,8 @@ struct ActivitiesSettings: View {
     @Default(.pomodoroLongEvery) private var pomoEvery
     @Default(.activityDownloads) private var downloads
     @Default(.activityCommands) private var commands
+    @Default(.activityAgents) private var agents
+    @Default(.agentAttentionStyle) private var attention
 
     var body: some View {
         Form {
@@ -49,8 +51,17 @@ struct ActivitiesSettings: View {
 
             Section {
                 Defaults.Toggle("Agents de code", key: .activityAgents)
+                Picker("Validation en attente", selection: $attention) {
+                    Text("Selon macOS").tag(AgentAttentionStyle.system)
+                    Text("Animée (onde et secousse)").tag(AgentAttentionStyle.full)
+                    Text("Douce (halo qui respire)").tag(AgentAttentionStyle.soft)
+                    Text("Aucune animation").tag(AgentAttentionStyle.off)
+                }
+                .disabled(!agents)
             } header: {
                 Text("Agents")
+            } footer: {
+                note("« Selon macOS » passe en halo doux quand Réduire les animations est activé (Accessibilité → Affichage).")
             }
 
             Section {
