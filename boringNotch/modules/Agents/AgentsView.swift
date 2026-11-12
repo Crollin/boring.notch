@@ -730,24 +730,38 @@ private struct AgentBubble: View {
     var badge = false      // une autre conversation attend une réponse
     let height: CGFloat
     @State private var pulse = false
+    @State private var attentionSince = Date()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var tint: Color { kind == .attention ? .red : kind == .idle ? .green : kind == .reply ? .blue : .orange }
     private var diameter: CGFloat { max(height - 8, 18) * (kind == .idle ? 0.78 : 1) }
 
     var body: some View {
-        ZStack {
-            Circle().fill(.black)
-            if kind == .attention {
-                Circle().stroke(tint.opacity(pulse ? 0.9 : 0.25), lineWidth: 1.5)
-                    .animation(.easeInOut(duration: 0.7).repeatForever(), value: pulse)
+        // Attention : tout dérive de l'horloge, pas d'un @State — une bulle déjà affichée qui passe en
+        // .attention s'anime donc forcément (l'ancien repeatForever ne repartait pas, `pulse` étant déjà vrai).
+        TimelineView(.animation(paused: kind != .attention || reduceMotion)) { t in
+            let e = t.date.timeIntervalSince(attentionSince)
+            let sonar = e.truncatingRemainder(dividingBy: 1.6) / 1.6             // onde : 0 → 1 toutes les 1,6 s
+            let shake = e.truncatingRemainder(dividingBy: 3)                    // secousse 0,4 s toutes les 3 s
+            let angle = shake < 0.4 ? sin(shake * .pi * 2 / 0.13) * 8 * (1 - shake / 0.4) : 0
+            let pop = e < 0.45 ? 1 + 0.2 * sin(e / 0.45 * .pi) : 1                // petit rebond à l'arrivée
+            let animate = kind == .attention && !reduceMotion
+            ZStack {
+                if animate {
+                    Circle().stroke(tint, lineWidth: 1.5)
+                        .scaleEffect(1 + 0.6 * sonar).opacity(0.8 * (1 - sonar))
+                }
+                Circle().fill(.black)
+                if kind == .attention { Circle().stroke(tint.opacity(0.7), lineWidth: 1.5) }
+                PixelMascot(color: tint, walking: kind == .working)
+                    .scaleEffect(kind == .idle ? 0.8 : 1)
+                    .offset(y: kind == .reply && pulse ? -1.5 : 0)
+                    .animation(kind == .reply ? .easeInOut(duration: 0.55).repeatForever() : .default, value: pulse)
+                    .opacity(kind == .idle ? 0.6 : 1)
+                    .rotationEffect(.degrees(animate ? angle : 0))
             }
-            PixelMascot(color: tint, walking: kind == .working)
-                .scaleEffect(kind == .idle ? 0.8 : 1)
-                .offset(y: kind == .reply && pulse ? -1.5 : 0)
-                .animation(kind == .reply ? .easeInOut(duration: 0.55).repeatForever() : .default, value: pulse)
-                .opacity(kind == .idle ? 0.6 : 1)
-                .rotationEffect(.degrees(kind == .attention ? (pulse ? 7 : -7) : 0))
-                .animation(kind == .attention ? .easeInOut(duration: 0.16).repeatForever() : .default, value: pulse)
+            .scaleEffect(animate ? pop : 1)
+            .shadow(color: kind == .attention ? tint.opacity(0.55) : .clear, radius: 4)
         }
         .frame(width: diameter, height: diameter)
         .overlay(alignment: .topTrailing) {
@@ -761,6 +775,11 @@ private struct AgentBubble: View {
         .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
         .animation(.spring(response: 0.45, dampingFraction: 0.78), value: kind)
         .onAppear { pulse = true }
+        .onChange(of: kind) { _, new in
+            if new == .attention { attentionSince = .now }
+            pulse = false                                       // relance le rebond .reply, même bug que l'attention
+            DispatchQueue.main.async { pulse = true }
+        }
     }
 }
 
