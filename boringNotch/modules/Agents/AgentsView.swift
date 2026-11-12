@@ -739,12 +739,14 @@ private struct AgentBubble: View {
     var body: some View {
         // Attention : tout dérive de l'horloge, pas d'un @State — une bulle déjà affichée qui passe en
         // .attention s'anime donc forcément (l'ancien repeatForever ne repartait pas, `pulse` étant déjà vrai).
-        TimelineView(.animation(paused: kind != .attention || reduceMotion)) { t in
+        TimelineView(.animation(paused: kind != .attention)) { t in
             let e = t.date.timeIntervalSince(attentionSince)
             let sonar = e.truncatingRemainder(dividingBy: 1.6) / 1.6             // onde : 0 → 1 toutes les 1,6 s
             let shake = e.truncatingRemainder(dividingBy: 3)                    // secousse 0,4 s toutes les 3 s
             let angle = shake < 0.4 ? sin(shake * .pi * 2 / 0.13) * 8 * (1 - shake / 0.4) : 0
             let pop = e < 0.45 ? 1 + 0.2 * sin(e / 0.45 * .pi) : 1                // petit rebond à l'arrivée
+            // Réduire les animations : rien ne bouge, l'anneau et le halo « respirent » (fondu, pas de mouvement).
+            let breathe = reduceMotion ? 0.5 + 0.5 * cos(e * .pi * 2 / 1.4) : 1
             let animate = kind == .attention && !reduceMotion
             ZStack {
                 if animate {
@@ -752,7 +754,7 @@ private struct AgentBubble: View {
                         .scaleEffect(1 + 0.6 * sonar).opacity(0.8 * (1 - sonar))
                 }
                 Circle().fill(.black)
-                if kind == .attention { Circle().stroke(tint.opacity(0.7), lineWidth: 1.5) }
+                if kind == .attention { Circle().stroke(tint.opacity(0.2 + 0.7 * breathe), lineWidth: 1.5) }
                 PixelMascot(color: tint, walking: kind == .working)
                     .scaleEffect(kind == .idle ? 0.8 : 1)
                     .offset(y: kind == .reply && pulse ? -1.5 : 0)
@@ -761,7 +763,7 @@ private struct AgentBubble: View {
                     .rotationEffect(.degrees(animate ? angle : 0))
             }
             .scaleEffect(animate ? pop : 1)
-            .shadow(color: kind == .attention ? tint.opacity(0.55) : .clear, radius: 4)
+            .shadow(color: kind == .attention ? tint.opacity(0.8 * breathe) : .clear, radius: 4 + 3 * breathe)
         }
         .frame(width: diameter, height: diameter)
         .overlay(alignment: .topTrailing) {
