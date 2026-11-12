@@ -30,6 +30,11 @@ enum CalendarSelectionState: Codable, Defaults.Serializable {
     case selected(Set<String>)
 }
 
+/// Bulle agent quand une validation attend. `system` suit « Réduire les animations » de macOS.
+enum AgentAttentionStyle: String, CaseIterable, Defaults.Serializable {
+    case system, full, soft, off
+}
+
 enum HideNotchOption: String, Defaults.Serializable {
     case always
     case nowPlayingOnly
@@ -100,6 +105,7 @@ extension Defaults.Keys {
     static let showMirror = Key<Bool>("showMirror", default: false)
     static let mirrorShape = Key<MirrorShapeEnum>("mirrorShape", default: MirrorShapeEnum.rectangle)
     static let settingsIconInNotch = Key<Bool>("settingsIconInNotch", default: true)
+    static let showWeather = Key<Bool>("showWeather", default: true)
     static let lightingEffect = Key<Bool>("lightingEffect", default: true)
     static let enableShadow = Key<Bool>("enableShadow", default: true)
     static let cornerRadiusScaling = Key<Bool>("cornerRadiusScaling", default: true)
@@ -107,6 +113,8 @@ extension Defaults.Keys {
     static let showNotHumanFace = Key<Bool>("showNotHumanFace", default: false)
     static let tileShowLabels = Key<Bool>("tileShowLabels", default: false)
     static let showCalendar = Key<Bool>("showCalendar", default: false)
+    static let tabOrder = Key<[String]>("tabOrder", default: [])     // ids d'onglets ; voir TabOrder
+    static let hiddenTabs = Key<[String]>("hiddenTabs", default: [])
     static let hideCompletedReminders = Key<Bool>("hideCompletedReminders", default: true)
     static let sliderColor = Key<SliderColorEnum>(
         "sliderUseAlbumArtColor",
@@ -150,6 +158,47 @@ extension Defaults.Keys {
     static let selectedDownloadIndicatorStyle = Key<DownloadIndicatorStyle>("selectedDownloadIndicatorStyle", default: DownloadIndicatorStyle.progress)
     static let selectedDownloadIconStyle = Key<DownloadIconStyle>("selectedDownloadIconStyle", default: DownloadIconStyle.onlyAppIcon)
     
+    // MARK: Spotify
+    static let spotifyClientID = Key<String>("spotifyClientID", default: "")
+
+    // MARK: Sonos
+    static let enableSonos = Key<Bool>("enableSonos", default: true)
+    static let sonosFavorites = Key<[SonosFavorite]>("sonosFavorites", default: [])
+    static let sonosLastGroup = Key<[String]?>("sonosLastGroup", default: nil)
+
+    // MARK: Activités autour de la notch
+    static let activityAgents = Key<Bool>("activityAgents", default: true)
+    static let agentAttentionStyle = Key<AgentAttentionStyle>("agentAttentionStyle", default: .system)
+    static let activityMic = Key<Bool>("activityMic", default: true)
+    static let activityCamera = Key<Bool>("activityCamera", default: true)
+    static let activityMaxPills = Key<Int>("activityMaxPills", default: 2)
+    static let activityEventSeconds = Key<Int>("activityEventSeconds", default: 6)
+    static let commandMinSeconds = Key<Int>("commandMinSeconds", default: 30)
+    static let commandWhenFrontmost = Key<Bool>("commandWhenFrontmost", default: false)
+    static let stayAwakeDisplay = Key<Bool>("stayAwakeDisplay", default: false)
+    static let stayAwakeShortcutMinutes = Key<Int>("stayAwakeShortcutMinutes", default: 0)   // 0 = indéfiniment
+    static let activityDownloads = Key<Bool>("activityDownloads", default: true)
+    static let downloadsToShelf = Key<Bool>("downloadsToShelf", default: true)
+    static let activityStayAwake = Key<Bool>("activityStayAwake", default: true)
+    static let activityDictation = Key<Bool>("activityDictation", default: true)
+    static let dictationLocale = Key<String>("dictationLocale", default: "fr-FR")
+    static let dictationMic = Key<String>("dictationMic", default: "auto")        // "auto" | "system" | UID d'un micro
+    static let dictationHold = Key<Bool>("dictationHold", default: true)          // true = maintenir, false = basculer
+    static let dictationKeepHistory = Key<Bool>("dictationKeepHistory", default: true)
+    static let dictationHistory = Key<[DictationEntry]>("dictationHistory", default: [])   // ponytail: 200 entrées max dans UserDefaults ; fichier JSON si ça grossit
+    static let dictationCleanup = Key<Bool>("dictationCleanup", default: true)
+    static let dictationSubstitutions = Key<String>("dictationSubstitutions", default: "")
+    static let dictationSuggestions = Key<[String]>("dictationSuggestions", default: [])   // règles « avant => après » apprises, à valider
+    static let timerShortcutMinutes = Key<Int>("timerShortcutMinutes", default: 25)
+    static let pomodoroFocusMinutes = Key<Int>("pomodoroFocusMinutes", default: 25)
+    static let pomodoroShortMinutes = Key<Int>("pomodoroShortMinutes", default: 5)
+    static let pomodoroLongMinutes = Key<Int>("pomodoroLongMinutes", default: 15)
+    static let pomodoroLongEvery = Key<Int>("pomodoroLongEvery", default: 4)
+    static let activityCommands = Key<Bool>("activityCommands", default: true)
+    static let activityDisks = Key<Bool>("activityDisks", default: true)
+    static let activityHeadsets = Key<Bool>("activityHeadsets", default: true)
+    static let activityLowBattery = Key<Bool>("activityLowBattery", default: true)
+
     // MARK: HUD
     static let hudReplacement = Key<Bool>("hudReplacement", default: false)
     static let inlineHUD = Key<Bool>("inlineHUD", default: false)
@@ -169,6 +218,8 @@ extension Defaults.Keys {
     static let quickShareProvider = Key<String>("quickShareProvider", default: QuickShareProvider.defaultProvider.id)
     static let copyOnDrag = Key<Bool>("copyOnDrag", default: false)
     static let autoRemoveShelfItems = Key<Bool>("autoRemoveShelfItems", default: false)
+    /// Dossier de sortie des conversions (bookmark sandbox). nil = Téléchargements.
+    static let convertOutputFolder = Key<Data?>("convertOutputFolder", default: nil)
     static let expandedDragDetection = Key<Bool>("expandedDragDetection", default: true)
     
     // MARK: Calendar
@@ -178,7 +229,8 @@ extension Defaults.Keys {
     static let autoScrollToNextEvent = Key<Bool>("autoScrollToNextEvent", default: true)
     
     // MARK: Fullscreen Media Detection
-    static let hideNotchOption = Key<HideNotchOption>("hideNotchOption", default: .nowPlayingOnly)
+    static let hideNotchOption = Key<HideNotchOption>("hideNotchOption", default: .always)
+    static let didMigrateFullscreenHiding = Key<Bool>("didMigrateFullscreenHiding", default: false)
     
     // MARK: Media Controller
     static let mediaController = Key<MediaControllerType>("mediaController", default: defaultMediaController)

@@ -65,6 +65,8 @@ struct ContentView: View {
             && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
         {
             chinWidth = 640
+        } else if coordinator.expandingView.type == .device && coordinator.expandingView.show && vm.notchState == .closed {
+            chinWidth = vm.closedNotchSize.width + 10 + 2 * DeviceEventView.sideWidth
         } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music)
             && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle)
             && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed
@@ -78,6 +80,32 @@ struct ContentView: View {
         }
 
         return chinWidth
+    }
+
+    /// Lecteur ouvert : la pochette, très floutée, teinte toute la notch ; le haut reste noir pour se fondre dans l'encoche.
+    private var showsAlbumAmbient: Bool {
+        vm.notchState == .open && coordinator.currentView == .home
+            && Defaults[.lightingEffect] && !musicManager.isPlayerIdle
+    }
+
+    private var notchBackground: some View {
+        ZStack {
+            Color.black
+            if showsAlbumAmbient {
+                Image(nsImage: musicManager.albumArt)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .blur(radius: 60, opaque: true)
+                    .saturation(1.3)
+                    // ponytail: plafond fixe ; une pochette très claire réduit le contraste du texte secondaire.
+                    .opacity(musicManager.isPlaying ? 0.42 : 0.2)
+                    .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.45)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .transition(.opacity)
+            }
+        }
+        .animation(.smooth(duration: 0.6), value: showsAlbumAmbient)
+        .animation(.smooth(duration: 0.6), value: musicManager.isPlaying)
     }
 
     var body: some View {
@@ -100,7 +128,7 @@ struct ContentView: View {
                         : cornerRadiusInsets.closed.bottom
                     )
                     .padding([.horizontal, .bottom], vm.notchState == .open ? 12 : 0)
-                    .background(.black)
+                    .background { notchBackground }
                     .clipShape(currentNotchShape)
                     .overlay(alignment: .top) {
                         Rectangle()
@@ -116,6 +144,7 @@ struct ContentView: View {
                         .bottom,
                         vm.effectiveClosedNotchHeight == 0 ? 10 : 0
                     )
+
                 
                 mainLayout
                     .frame(height: vm.notchState == .open ? vm.notchSize.height : nil)
@@ -204,6 +233,18 @@ struct ContentView: View {
         }
         .padding(.bottom, 8)
         .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
+        // Activités (agents, micro, téléchargements…) de part et d'autre du notch fermé (largeur réelle, activité Spotify comprise).
+        .overlay(alignment: .top) {
+            if vm.notchState == .closed {
+                ActivitySlots(height: vm.effectiveClosedNotchHeight, notchWidth: computedChinWidth) {
+                    coordinator.currentView = .module("agents")
+                    doOpen()
+                }
+                // La bulle est calée sur le notch fermé : à l'ouverture elle doit disparaître tout de suite,
+                // sinon le fondu (ressort de l'ouverture) la laisse traîner par-dessus la barre d'onglets.
+                .transition(.asymmetric(insertion: .opacity, removal: .identity))
+            }
+        }
         .compositingGroup()
         .scaleEffect(
             x: gestureScale,
@@ -215,6 +256,7 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .environmentObject(vm)
         .onChange(of: vm.anyDropZoneTargeting) { _, isTargeted in
+            ConvertStore.shared.dragChanged(isTargeted)
             anyDropDebounceTask?.cancel()
 
             if isTargeted {
@@ -284,6 +326,8 @@ struct ContentView: View {
                             .frame(width: 76, alignment: .trailing)
                         }
                         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
+                      } else if coordinator.expandingView.type == .device && coordinator.expandingView.show && vm.notchState == .closed {
+                          DeviceEventView(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight)
                       } else if coordinator.sneakPeek.show && Defaults[.inlineHUD] && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
                           InlineHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon, hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)
@@ -295,6 +339,7 @@ struct ContentView: View {
                        } else if vm.notchState == .open {
                            BoringHeader()
                                .frame(height: max(24, vm.effectiveClosedNotchHeight))
+                               .padding(.top, 6)  // la pastille d'onglet ne colle pas au bord haut
                                .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
                        } else {
                            Rectangle().fill(.clear).frame(width: vm.closedNotchSize.width - 20, height: vm.effectiveClosedNotchHeight)
@@ -308,6 +353,8 @@ struct ContentView: View {
                                   icon: $coordinator.sneakPeek.icon,
                                   sendEventBack: { newVal in
                                       switch coordinator.sneakPeek.type {
+                                      case .volume where coordinator.sneakPeek.icon == SonosStore.hudIcon:
+                                          Task { await SonosStore.shared.setGroupVolume(Int(newVal * 100)) }
                                       case .volume:
                                           VolumeManager.shared.setAbsolute(Float32(newVal))
                                       case .brightness:
@@ -349,8 +396,14 @@ struct ContentView: View {
                         NotchHomeView(albumArtNamespace: albumArtNamespace)
                     case .shelf:
                         ShelfView()
+                    case .module(let id):
+                        NotchModules.view(for: id)
                     }
                 }
+                // Un onglet trop haut déborde vers le bas (coupé) au lieu de repousser l'en-tête hors de la notch.
+                // minHeight: 0 sinon le cadre prend la taille du contenu quand il déborde.
+                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+                .clipped()
                 .transition(
                     .scale(scale: 0.8, anchor: .top)
                     .combined(with: .opacity)

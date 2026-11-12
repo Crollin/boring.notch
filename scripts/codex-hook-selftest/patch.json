@@ -1,0 +1,18 @@
+{
+ "session_id": "01a1a607-6a84-7572-936c-a3f0059575f1",
+ "turn_id": "01a1a607-6c88-7271-8a1e-ad9f7a8ed448",
+ "transcript_path": "/Users/me/.codex/sessions/rollout-test.jsonl",
+ "cwd": "/tmp/bn-codex",
+ "hook_event_name": "PreToolUse",
+ "model": "gpt-6.1-sol",
+ "permission_mode": "bypassPermissions",
+ "tool_name": "apply_patch",
+ "tool_input": {
+  "command": [
+   "apply_patch",
+   "*** Begin Patch\n*** Update File: src/a.swift\n@@\n-x\n+y\n*** Add File: b.txt\n+z\n*** End Patch"
+  ]
+ },
+ "tool_use_id": "exec-synthetic-patch",
+ "_synthetic": "format apply_patch non observe, fixture ecrite a la main"
+}

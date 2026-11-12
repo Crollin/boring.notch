@@ -23,10 +23,11 @@ class BoringViewModel: NSObject, ObservableObject {
     @Published var generalDropTargeting: Bool = false
     @Published var dropZoneTargeting: Bool = false
     @Published var dropEvent: Bool = false
+    @Published var convertDropTargeting: Bool = false
     @Published var anyDropZoneTargeting: Bool = false
     var cancellables: Set<AnyCancellable> = []
     
-    @Published var hideOnClosed: Bool = true
+    @Published var hideOnClosed: Bool = false
 
     @Published var edgeAutoOpenActive: Bool = false
     @Published var isHoveringCalendar: Bool = false
@@ -59,9 +60,9 @@ class BoringViewModel: NSObject, ObservableObject {
         notchSize = getClosedNotchSize(screenUUID: screenUUID)
         closedNotchSize = notchSize
 
-        Publishers.CombineLatest3($dropZoneTargeting, $dragDetectorTargeting, $generalDropTargeting)
-            .map { shelf, drag, general in
-                shelf || drag || general
+        Publishers.CombineLatest4($dropZoneTargeting, $dragDetectorTargeting, $generalDropTargeting, $convertDropTargeting)
+            .map { shelf, drag, general, convert in
+                shelf || drag || general || convert
             }
             .assign(to: \.anyDropZoneTargeting, on: self)
             .store(in: &cancellables)
@@ -190,6 +191,7 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func open() {
+        guard !hideOnClosed else { return }
         self.notchSize = openNotchSize
         self.notchState = .open
         

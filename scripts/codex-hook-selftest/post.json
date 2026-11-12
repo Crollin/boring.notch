@@ -1,0 +1,15 @@
+{
+ "session_id": "01a1a607-6a84-7572-936c-a3f0059575f1",
+ "turn_id": "01a1a607-6c88-7271-8a1e-ad9f7a8ed448",
+ "transcript_path": "/Users/me/.codex/sessions/rollout-test.jsonl",
+ "cwd": "/tmp/bn-codex",
+ "hook_event_name": "PostToolUse",
+ "model": "gpt-6.1-sol",
+ "permission_mode": "bypassPermissions",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "rtk ls -la"
+ },
+ "tool_response": "(empty)\n",
+ "tool_use_id": "exec-29549a94-29f2-4665-8e4c-67e574c81a6f"
+}

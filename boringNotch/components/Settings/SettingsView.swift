@@ -39,6 +39,12 @@ struct SettingsView: View {
                 NavigationLink(value: "Calendar") {
                     Label("Calendar", systemImage: "calendar")
                 }
+                NavigationLink(value: "Activities") {
+                    Label("Activités", systemImage: "capsule.portrait.tophalf.filled")
+                }
+                NavigationLink(value: "Dictation") {
+                    Label("Dictée", systemImage: "mic.fill")
+                }
                 NavigationLink(value: "HUD") {
                     Label("HUDs", systemImage: "dial.medium.fill")
                 }
@@ -79,6 +85,10 @@ struct SettingsView: View {
                     Media()
                 case "Calendar":
                     CalendarSettings()
+                case "Activities":
+                    ActivitiesSettings()
+                case "Dictation":
+                    if #available(macOS 26.0, *) { DictationSettings() } else { Text("La dictée nécessite macOS 26 ou plus.") }
                 case "HUD":
                     HUD()
                 case "Battery":
@@ -692,6 +702,23 @@ struct Media: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            SpotifyLikeSettings()
+
+            Section {
+                Defaults.Toggle("Contrôle Sonos", key: .enableSonos)
+            } header: {
+                Text("Sonos")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Quand Spotify joue sur une Sonos, le lecteur affiche la pièce et son volume. Les touches volume règlent le Mac ; ⌃ + touches volume règlent la Sonos.")
+                    if !Defaults[.hudReplacement] {
+                        Text("Activez le remplacement du HUD pour régler la Sonos avec ⌃ + touches volume.")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
         .accentColor(.effectiveAccent)
         .navigationTitle("Media")
@@ -1157,6 +1184,80 @@ struct Shelf: View {
 //    }
 //}
 
+/// Onglets du notch : affichés ou non, et dans quel ordre (glisser, ou clic droit → Monter / Descendre).
+private struct TabsSettingsSection: View {
+    @Default(.tabOrder) private var order
+    @Default(.hiddenTabs) private var hidden
+    @Default(.showCalendar) private var showCalendar
+    @State private var target: String?   // ligne survolée pendant un glisser
+
+    var body: some View {
+        let list = TabModel.ordered(order)
+        Section {
+            ForEach(list) { tab in
+                HStack(spacing: 8) {
+                    Image(systemName: "line.3.horizontal")
+                        .foregroundStyle(.tertiary)
+                        .help("Glisser pour changer l'ordre")
+                        .accessibilityHidden(true)
+                    Toggle(isOn: shown(tab.id)) {
+                        Label {
+                            Text(tab.label)
+                        } icon: {
+                            Image(systemName: tab.icon).foregroundStyle(.secondary).frame(width: 18)
+                        }
+                    }
+                    .disabled(tab.id == "home")
+                }
+                .contentShape(Rectangle())
+                // onMove ne marche pas dans un Form groupé sur macOS : glisser-déposer explicite, ligne sur ligne.
+                .draggable(tab.id) {
+                    Label(tab.label, systemImage: tab.icon)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .dropDestination(for: String.self) { items, _ in
+                    guard let id = items.first else { return false }
+                    order = TabOrder.move(id, onto: tab.id, in: list.map(\.id))
+                    return true
+                } isTargeted: { on in
+                    if on { target = tab.id } else if target == tab.id { target = nil }
+                }
+                .listRowBackground(target == tab.id ? Color.accentColor.opacity(0.15) : nil)
+                .contextMenu {
+                    Button("Monter") { move(tab.id, by: -1, in: list) }
+                        .disabled(tab.id == list.first?.id)
+                    Button("Descendre") { move(tab.id, by: 1, in: list) }
+                        .disabled(tab.id == list.last?.id)
+                }
+            }
+        } header: {
+            Text("Onglets")
+        } footer: {
+            Text("Glisser une ligne par sa poignée pour changer l'ordre, ou clic droit → Monter / Descendre. L'accueil reste toujours affiché.")
+                .foregroundStyle(.secondary).font(.caption)
+        }
+    }
+
+    /// Le calendrier garde son réglage historique (`showCalendar`), partagé avec la page Calendar.
+    private func shown(_ id: String) -> Binding<Bool> {
+        if id == "calendar" { return $showCalendar }
+        return Binding {
+            TabOrder.isShown(id, hidden: hidden, showCalendar: showCalendar)
+        } set: { on in
+            hidden.removeAll { $0 == id }
+            if !on { hidden.append(id) }
+        }
+    }
+
+    private func move(_ id: String, by delta: Int, in list: [TabModel]) {
+        var ids = list.map(\.id)
+        guard let i = ids.firstIndex(of: id), ids.indices.contains(i + delta) else { return }
+        ids.swapAt(i, i + delta)
+        order = ids
+    }
+}
+
 struct Appearance: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @Default(.mirrorShape) var mirrorShape
@@ -1179,10 +1280,15 @@ struct Appearance: View {
                 Defaults.Toggle(key: .settingsIconInNotch) {
                     Text("Show settings icon in notch")
                 }
+                Defaults.Toggle(key: .showWeather) {
+                    Text("Météo dans l'en-tête (position approximative, Open-Meteo)")
+                }
 
             } header: {
                 Text("General")
             }
+
+            TabsSettingsSection()
 
             Section {
                 Defaults.Toggle(key: .coloredSpectrogram) {
@@ -1207,7 +1313,6 @@ struct Appearance: View {
                     "Use music visualizer spectrogram",
                     isOn: $useMusicVisualizer.animation()
                 )
-                .disabled(true)
                 if !useMusicVisualizer {
                     if customVisualizers.count > 0 {
                         Picker(
@@ -1232,10 +1337,7 @@ struct Appearance: View {
                     }
                 }
             } header: {
-                HStack {
-                    Text("Custom music live activity animation")
-                    customBadge(text: "Coming soon")
-                }
+                Text("Custom music live activity animation")
             }
 
             Section {
@@ -1739,6 +1841,7 @@ struct Shortcuts: View {
             }
             Section {
                 KeyboardShortcuts.Recorder("Toggle Notch Open:", name: .toggleNotchOpen)
+                KeyboardShortcuts.Recorder("Ouvrir les copies :", name: .openClipboard)
             }
         }
         .accentColor(.effectiveAccent)
@@ -1796,4 +1899,48 @@ func warningBadge(_ text: String, _ description: String) -> some View {
 
 #Preview {
     HUD()
+}
+
+/// Réglage du cœur Spotify (Web API, OAuth PKCE).
+private struct SpotifyLikeSettings: View {
+    @ObservedObject private var api = SpotifyWebAPI.shared
+    @Default(.spotifyClientID) private var clientID
+
+    var body: some View {
+        Section {
+            TextField("Client ID", text: $clientID)
+                .disabled(api.isConnected)
+            LabeledContent("Redirect URI") {
+                HStack {
+                    Text(SpotifyWebAPI.redirectURI).textSelection(.enabled).foregroundStyle(.secondary)
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(SpotifyWebAPI.redirectURI, forType: .string)
+                    } label: { Image(systemName: "doc.on.doc") }
+                    .buttonStyle(.borderless)
+                }
+            }
+            HStack {
+                Label(api.isConnected ? "Connecté" : "Non connecté",
+                      systemImage: api.isConnected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(api.isConnected ? .green : .secondary)
+                Spacer()
+                if api.isConnected {
+                    Button("Déconnecter") { api.disconnect() }
+                } else {
+                    Button("Se connecter à Spotify") { api.connect() }
+                        .disabled(clientID.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            if let err = api.lastError {
+                Text(err).font(.caption).foregroundStyle(.red).lineLimit(3)
+            }
+        } header: {
+            Text("Spotify — titres likés et file d'attente")
+        } footer: {
+            Text("Pour activer le cœur et la file d'attente : créez une app sur developer.spotify.com (Web API), ajoutez la Redirect URI ci-dessus, collez son Client ID puis connectez-vous.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
 }

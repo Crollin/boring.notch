@@ -21,8 +21,9 @@ struct DynamicNotchApp: App {
     let updaterController: SPUStandardUpdaterController
 
     init() {
+        // Fork perso : Sparkle désactivé, une mise à jour officielle écraserait les modules ajoutés (Sonos, Agents, Convertir).
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
 
         // Initialize the settings window controller with the updater controller
         SettingsWindowController.shared.setUpdaterController(updaterController)
@@ -37,6 +38,9 @@ struct DynamicNotchApp: App {
             }
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
             CheckForUpdatesView(updater: updaterController.updater)
+            Divider()
+            StayAwakeMenu()
+            TimerMenu()
             Divider()
             Button("Restart Boring Notch") {
                 ApplicationRelauncher.restart()
@@ -250,6 +254,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         window.orderFrontRegardless()
+        window.observeFullscreenVisibility(viewModel)
         NotchSpaceManager.shared.notchSpace.windows.insert(window)
 
         // Observe when the window's screen changes so we can update drag detectors
@@ -280,6 +285,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NotchModules.startAll()
+        SonosStore.shared.start()
+        PrivacyMonitor.shared.start()
+        WeatherStore.shared.start()
+        DownloadMonitor.shared.start()
+        ActivityEvents.shared.start()
+        BluetoothBattery.shared.start()
+        LogiConnectionWatcher.shared.start()
 
         NotificationCenter.default.addObserver(
             self,
@@ -362,6 +375,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     type: .music,
                     duration: 3.0
                 )
+            }
+        }
+
+        if #available(macOS 26.0, *) {
+            KeyboardShortcuts.onKeyDown(for: .dictation) { Task { @MainActor in Dictation.shared.keyDown() } }
+            KeyboardShortcuts.onKeyUp(for: .dictation) { Task { @MainActor in Dictation.shared.keyUp() } }
+        }
+
+        KeyboardShortcuts.onKeyDown(for: .toggleStayAwake) {
+            Task { @MainActor in StayAwake.shared.toggle() }
+        }
+
+        KeyboardShortcuts.onKeyDown(for: .toggleTimer) {
+            Task { @MainActor in NotchTimer.shared.toggle() }
+        }
+
+        // Ouvre le notch sur l'onglet Copies (ou le referme s'il y est déjà).
+        KeyboardShortcuts.onKeyDown(for: .openClipboard) { [weak self] in
+            Task { @MainActor in
+                guard let vm = self?.vm else { return }
+                let coordinator = BoringViewCoordinator.shared
+                if vm.notchState == .open, coordinator.currentView == .module("clipboard") { vm.close(); return }
+                coordinator.currentView = .module("clipboard")
+                vm.open()
             }
         }
 

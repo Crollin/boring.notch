@@ -38,6 +38,12 @@ struct SystemEventIndicatorModifier: View {
                             .opacity(value.isZero ? 0.6 : 1)
                             .scaleEffect(value.isZero ? 0.85 : 1)
                             .frame(width: 20, height: 15, alignment: .leading)
+                        if icon == SonosStore.hudIcon {
+                            Text(SonosStore.shared.label)
+                                .font(.caption.weight(.medium))
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
                     }
                 case .brightness:
                     Image(systemName: "sun.max.fill")

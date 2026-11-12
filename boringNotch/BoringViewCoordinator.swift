@@ -18,6 +18,7 @@ enum SneakContentType {
     case mic
     case battery
     case download
+    case device
 }
 
 struct sneakPeek {
@@ -165,10 +166,8 @@ class BoringViewCoordinator: ObservableObject {
             helloAnimationRunning = firstLaunch
 
             if Defaults[.hudReplacement] {
-                let authorized = await XPCHelperClient.shared.isAccessibilityAuthorized()
-                if !authorized {
-                    Defaults[.hudReplacement] = false
-                } else {
+                // Réglage conservé même sans autorisation : l'observer d'accessibilité démarre l'interception dès qu'elle revient.
+                if await XPCHelperClient.shared.isAccessibilityAuthorized() {
                     await MediaKeyInterceptor.shared.start(promptIfNeeded: false)
                 }
             }
@@ -281,7 +280,8 @@ class BoringViewCoordinator: ObservableObject {
         didSet {
             if expandingView.show {
                 expandingViewTask?.cancel()
-                let duration: TimeInterval = (expandingView.type == .download ? 2 : 3)
+                let shortLived = expandingView.type == .download || (expandingView.type == .device && expandingView.value == 0)
+                let duration: TimeInterval = shortLived ? 2 : 3
                 let currentType = expandingView.type
                 expandingViewTask = Task { [weak self] in
                     try? await Task.sleep(for: .seconds(duration))

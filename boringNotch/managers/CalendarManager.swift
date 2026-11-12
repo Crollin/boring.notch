@@ -193,6 +193,11 @@ class CalendarManager: ObservableObject {
         self.events = eventsResult
     }
     
+    /// Événements des calendriers sélectionnés sur une plage quelconque (agenda multi-jours, points du mois).
+    func events(from start: Date, to end: Date) async -> [EventModel] {
+        await calendarService.events(from: start, to: end, calendars: selectedCalendars.map { $0.id })
+    }
+
     func setReminderCompleted(reminderID: String, completed: Bool) async {
         await calendarService.setReminderCompleted(reminderID: reminderID, completed: completed)
         // Refresh events after updating

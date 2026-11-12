@@ -125,28 +125,29 @@ final class MediaKeyInterceptor {
         let option = flags.contains(.option)
         let shift = flags.contains(.shift)
         let command = flags.contains(.command)
-        
+        let control = flags.contains(.control)   // ⌃ + touches son = Sonos
+
         // Handle option key action (without shift)
         if option && !shift {
-            if handleOptionAction(for: keyType, command: command) {
+            if handleOptionAction(for: keyType, command: command, control: control) {
                 return nil
             }
         }
-        
+
         // Handle normal key press
-        handleKeyPress(keyType: keyType, option: option, shift: shift, command: command)
+        handleKeyPress(keyType: keyType, option: option, shift: shift, command: command, control: control)
         return nil
     }
-    
-    private func handleOptionAction(for keyType: NXKeyType, command: Bool) -> Bool {
+
+    private func handleOptionAction(for keyType: NXKeyType, command: Bool, control: Bool) -> Bool {
         let action = Defaults[.optionKeyAction]
-        
+
         switch action {
         case .openSettings:
             openSystemSettings(for: keyType, command: command)
             return true
         case .showHUD:
-            showHUD(for: keyType, command: command)
+            showHUD(for: keyType, command: command, control: control)
             return true
         case .none:
             return true
@@ -196,24 +197,31 @@ final class MediaKeyInterceptor {
         player.play()
     }
 
-    private func handleKeyPress(keyType: NXKeyType, option: Bool, shift: Bool, command: Bool) {
+    private func handleKeyPress(keyType: NXKeyType, option: Bool, shift: Bool, command: Bool, control: Bool) {
         let stepDivisor: Float = (option && shift) ? 4.0 : 1.0
-        
+
+        // Touches son = Mac. ⌃ + touches son = Sonos détectée (sinon Mac).
+        if [.soundUp, .soundDown, .mute].contains(keyType) {
+            Task { @MainActor in
+                let sonos = SonosStore.shared
+                guard control, sonos.isActive else {
+                    self.handleMacSoundKey(keyType, stepDivisor: stepDivisor)
+                    return
+                }
+                let step = (option && shift) ? 2 : 6
+                switch keyType {
+                case .soundUp: await sonos.adjustGroupVolume(by: step)
+                case .soundDown: await sonos.adjustGroupVolume(by: -step)
+                default: await sonos.toggleMute()
+                }
+                sonos.showHUD()
+            }
+            return
+        }
+
         switch keyType {
-        case .soundUp:
-            Task { @MainActor in
-                self.playFeedbackSound()
-                VolumeManager.shared.increase(stepDivisor: stepDivisor)
-            }
-        case .soundDown:
-            Task { @MainActor in
-                self.playFeedbackSound()
-                VolumeManager.shared.decrease(stepDivisor: stepDivisor)
-            }
-        case .mute:
-            Task { @MainActor in
-                VolumeManager.shared.toggleMuteAction()
-            }
+        case .soundUp, .soundDown, .mute:
+            break // traité plus haut
         case .brightnessUp, .keyboardBrightnessUp:
             let delta = step / stepDivisor
             adjustBrightness(delta: delta, keyboard: keyType == .keyboardBrightnessUp || command)
@@ -223,6 +231,21 @@ final class MediaKeyInterceptor {
         }
     }
     
+    @MainActor private func handleMacSoundKey(_ keyType: NXKeyType, stepDivisor: Float) {
+        switch keyType {
+        case .soundUp:
+            playFeedbackSound()
+            VolumeManager.shared.increase(stepDivisor: stepDivisor)
+        case .soundDown:
+            playFeedbackSound()
+            VolumeManager.shared.decrease(stepDivisor: stepDivisor)
+        case .mute:
+            VolumeManager.shared.toggleMuteAction()
+        default:
+            break
+        }
+    }
+
     private func adjustBrightness(delta: Float, keyboard: Bool) {
         Task { @MainActor in
             if keyboard {
@@ -233,10 +256,14 @@ final class MediaKeyInterceptor {
         }
     }
     
-    private func showHUD(for keyType: NXKeyType, command: Bool) {
+    private func showHUD(for keyType: NXKeyType, command: Bool, control: Bool) {
         Task { @MainActor in
             switch keyType {
             case .soundUp, .soundDown, .mute:
+                if control, SonosStore.shared.isActive {
+                    SonosStore.shared.showHUD()
+                    return
+                }
                 let v = VolumeManager.shared.rawVolume
                 BoringViewCoordinator.shared.toggleSneakPeek(status: true, type: .volume, value: CGFloat(v))
             case .brightnessUp, .brightnessDown:

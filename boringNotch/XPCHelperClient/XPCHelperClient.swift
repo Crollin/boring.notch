@@ -227,6 +227,17 @@ final class XPCHelperClient: NSObject {
         }
     }
     
+    nonisolated func openLogiDevicesJSON() async -> Data? {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            return try await service.withContinuation { service, continuation in
+                service.openLogiDevicesJSON { continuation.resume(returning: $0) }
+            }
+        } catch {
+            return nil
+        }
+    }
+
     nonisolated func setScreenBrightness(_ value: Float) async -> Bool {
         do {
             let service = await MainActor.run {
