@@ -30,6 +30,11 @@ enum CalendarSelectionState: Codable, Defaults.Serializable {
     case selected(Set<String>)
 }
 
+/// Bulle agent quand une validation attend. `system` suit « Réduire les animations » de macOS.
+enum AgentAttentionStyle: String, CaseIterable, Defaults.Serializable {
+    case system, full, soft, off
+}
+
 enum HideNotchOption: String, Defaults.Serializable {
     case always
     case nowPlayingOnly
@@ -163,6 +168,7 @@ extension Defaults.Keys {
 
     // MARK: Activités autour de la notch
     static let activityAgents = Key<Bool>("activityAgents", default: true)
+    static let agentAttentionStyle = Key<AgentAttentionStyle>("agentAttentionStyle", default: .system)
     static let activityMic = Key<Bool>("activityMic", default: true)
     static let activityCamera = Key<Bool>("activityCamera", default: true)
     static let activityMaxPills = Key<Int>("activityMaxPills", default: 2)

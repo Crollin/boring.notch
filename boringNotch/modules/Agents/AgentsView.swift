@@ -6,6 +6,7 @@
 //  aperçu d'activité et priorité aux questions / validations.
 //
 
+import Defaults
 import SwiftUI
 
 // MARK: - Style par agent / état
@@ -732,6 +733,9 @@ private struct AgentBubble: View {
     @State private var pulse = false
     @State private var attentionSince = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Default(.agentAttentionStyle) private var style
+    /// Style effectif : `system` devient animé ou doux selon Réduire les animations.
+    private var effective: AgentAttentionStyle { style == .system ? (reduceMotion ? .soft : .full) : style }
 
     private var tint: Color { kind == .attention ? .red : kind == .idle ? .green : kind == .reply ? .blue : .orange }
     private var diameter: CGFloat { max(height - 8, 18) * (kind == .idle ? 0.78 : 1) }
@@ -739,15 +743,15 @@ private struct AgentBubble: View {
     var body: some View {
         // Attention : tout dérive de l'horloge, pas d'un @State — une bulle déjà affichée qui passe en
         // .attention s'anime donc forcément (l'ancien repeatForever ne repartait pas, `pulse` étant déjà vrai).
-        TimelineView(.animation(paused: kind != .attention)) { t in
+        TimelineView(.animation(paused: kind != .attention || effective == .off)) { t in
             let e = t.date.timeIntervalSince(attentionSince)
             let sonar = e.truncatingRemainder(dividingBy: 1.6) / 1.6             // onde : 0 → 1 toutes les 1,6 s
             let shake = e.truncatingRemainder(dividingBy: 3)                    // secousse 0,4 s toutes les 3 s
             let angle = shake < 0.4 ? sin(shake * .pi * 2 / 0.13) * 8 * (1 - shake / 0.4) : 0
             let pop = e < 0.45 ? 1 + 0.2 * sin(e / 0.45 * .pi) : 1                // petit rebond à l'arrivée
-            // Réduire les animations : rien ne bouge, l'anneau et le halo « respirent » (fondu, pas de mouvement).
-            let breathe = reduceMotion ? 0.5 + 0.5 * cos(e * .pi * 2 / 1.4) : 1
-            let animate = kind == .attention && !reduceMotion
+            // Doux : rien ne bouge, l'anneau et le halo « respirent » (fondu, pas de mouvement).
+            let breathe = effective == .soft ? 0.5 + 0.5 * cos(e * .pi * 2 / 1.4) : 1
+            let animate = kind == .attention && effective == .full
             ZStack {
                 if animate {
                     Circle().stroke(tint, lineWidth: 1.5)
